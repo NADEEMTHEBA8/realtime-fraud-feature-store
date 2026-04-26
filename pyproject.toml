@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "realtime-fraud-feature-store"
+version = "0.1.0"
+description = "Production-grade fintech transaction pipeline with real-time fraud feature serving"
+authors = [
+    {name = "Nadeem Theba", email = "nadeemtheba8@gmail.com"}
+]
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "pydantic>=2.6.0",
+    "faker>=24.0.0",
+    "kafka-python>=2.0.2",
+    "python-dotenv>=1.0.0",
+    "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[tool.setuptools]
+packages = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["ingestion", "streaming", "feature_store", "orchestration"]
+python_files = "test_*.py"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
