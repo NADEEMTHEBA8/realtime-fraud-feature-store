@@ -194,4 +194,4 @@ class TransactionGenerator:
         """Generate a plausible Indian IP address, masked to /24 for privacy."""
         # Indian IP ranges (simplified; real implementation would use GeoIP)
         first_octet = self._rng.choice([103, 106, 117, 122, 157, 182, 203])
-        return f"{first_octet}.{self._rng.randint(0,255)}.{self._rng.randint(0,255)}.0"```
+        return f"{first_octet}.{self._rng.randint(0,255)}.{self._rng.randint(0,255)}.0"
