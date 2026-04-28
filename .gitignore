@@ -22,3 +22,4 @@ logs/
 .gcp/
 *.json.key
 service-account*.json
+streaming/spark/jars/*.jar
