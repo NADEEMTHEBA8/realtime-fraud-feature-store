@@ -1,0 +1,46 @@
+version: 2
+
+sources:
+  - name: reference
+    description: "Reference/dimension tables from the operational database, kept in sync via Debezium CDC."
+    schema: public
+    tables:
+      - name: merchants
+        description: "Merchant master data — name, category, risk tier, ticket size. Changes streamed via CDC."
+        columns:
+          - name: merchant_id
+            description: "Primary key (format: merch_XXXXXXXXXX)"
+          - name: merchant_name
+            description: "Display name of the merchant"
+          - name: category
+            description: "Business category (grocery, electronics, fashion, etc)"
+          - name: risk_tier
+            description: "Risk classification: low, medium, high, critical"
+          - name: avg_ticket_size
+            description: "Average transaction amount for this merchant"
+          - name: is_active
+            description: "Whether merchant is currently active"
+          - name: onboarded_at
+            description: "When merchant was first registered"
+          - name: updated_at
+            description: "Last modification timestamp"
+
+      - name: users
+        description: "User master data — KYC level, risk score, location. Changes streamed via CDC."
+        columns:
+          - name: user_id
+            description: "Primary key (format: user_XXXXXXXXXX)"
+          - name: email_hash
+            description: "SHA-256 hash of user email (PII protected)"
+          - name: phone_hash
+            description: "SHA-256 hash of user phone (PII protected)"
+          - name: city
+            description: "User city"
+          - name: country
+            description: "ISO 3166-1 alpha-2 country code"
+          - name: kyc_level
+            description: "KYC verification level: basic, intermediate, full"
+          - name: risk_score
+            description: "Risk score between 0 (safe) and 1 (risky)"
+          - name: is_blocked
+            description: "Whether user account is blocked"

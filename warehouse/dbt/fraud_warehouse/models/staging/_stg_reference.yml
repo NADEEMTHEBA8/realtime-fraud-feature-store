@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: stg_merchants
+    description: "Cleaned merchant reference data from CDC. One row per merchant."
+    columns:
+      - name: merchant_id
+        data_tests:
+          - unique
+          - not_null
+      - name: merchant_name
+        data_tests:
+          - not_null
+      - name: merchant_category
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['grocery', 'electronics', 'fashion', 'food_delivery', 'travel', 'entertainment', 'utilities', 'healthcare', 'education', 'fuel']
+      - name: merchant_risk_tier
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['low', 'medium', 'high', 'critical']
+
+  - name: stg_users
+    description: "Cleaned user reference data from CDC. One row per user."
+    columns:
+      - name: user_id
+        data_tests:
+          - unique
+          - not_null
+      - name: user_kyc_level
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['basic', 'intermediate', 'full']
+      - name: user_country
+        data_tests:
+          - not_null
+      - name: user_risk_score
+        data_tests:
+          - not_null

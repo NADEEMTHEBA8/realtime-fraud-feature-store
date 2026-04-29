@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: int_transactions_enriched
+    description: >
+      Transactions enriched with merchant and user dimensions from CDC.
+      Includes derived fraud signals: amount_to_avg_ticket_ratio,
+      is_cross_city, and is_high_risk_combo.
+    columns:
+      - name: transaction_id
+        data_tests:
+          - unique
+          - not_null
+      - name: user_id
+        data_tests:
+          - not_null
+      - name: merchant_id
+        data_tests:
+          - not_null
+      - name: amount
+        data_tests:
+          - not_null
+      - name: event_timestamp
+        data_tests:
+          - not_null
