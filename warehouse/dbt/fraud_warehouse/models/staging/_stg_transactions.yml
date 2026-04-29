@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: stg_transactions
+    description: >
+      Cleaned and typed transaction events. This is the silver layer — all columns
+      are properly typed, validated, and ready for business logic in the gold layer.
+      Records that fail validation are excluded (amount <= 0, null timestamps, etc).
+    columns:
+      - name: transaction_id
+        description: "UUID v4 — primary key, globally unique"
+        data_tests:
+          - unique
+          - not_null
+
+      - name: user_id
+        description: "User identifier"
+        data_tests:
+          - not_null
+
+      - name: merchant_id
+        description: "Merchant identifier"
+        data_tests:
+          - not_null
+
+      - name: amount
+        description: "Transaction amount in the given currency. Always positive, NUMERIC(12,2)."
+        data_tests:
+          - not_null
+
+      - name: currency
+        description: "ISO 4217 currency code"
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['INR', 'USD', 'EUR', 'GBP']
+
+      - name: transaction_type
+        description: "Type of transaction"
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['PURCHASE', 'REFUND', 'TRANSFER', 'WITHDRAWAL']
+
+      - name: status
+        description: "Transaction outcome"
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['SUCCESS', 'FAILED', 'PENDING']
+
+      - name: payment_method
+        description: "Payment instrument used"
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['UPI', 'CARD', 'NETBANKING', 'WALLET']
+
+      - name: event_timestamp
+        description: "When the transaction occurred"
+        data_tests:
+          - not_null
+
+      - name: city
+        description: "User city"
+        data_tests:
+          - not_null
+
+      - name: country
+        description: "ISO country code"
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['IN']

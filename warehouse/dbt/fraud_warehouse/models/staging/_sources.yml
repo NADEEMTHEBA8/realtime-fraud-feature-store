@@ -1,0 +1,54 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Raw transaction data loaded from MinIO Parquet files. All columns are TEXT — no type casting has been applied."
+    schema: bronze
+    tables:
+      - name: transactions
+        description: "Raw transaction events from Kafka topic transactions.raw. One row per payment event."
+        columns:
+          - name: transaction_id
+            description: "UUID v4 identifying the transaction"
+          - name: user_id
+            description: "Hashed user identifier (format: user_XXXXXXXXXX)"
+          - name: merchant_id
+            description: "Hashed merchant identifier (format: merch_XXXXXXXXXX)"
+          - name: amount
+            description: "Transaction amount as string (to be cast to NUMERIC in staging)"
+          - name: currency
+            description: "ISO 4217 currency code (e.g., INR)"
+          - name: transaction_type
+            description: "PURCHASE, REFUND, TRANSFER, or WITHDRAWAL"
+          - name: status
+            description: "SUCCESS, FAILED, or PENDING"
+          - name: payment_method
+            description: "UPI, CARD, NET_BANKING, or WALLET"
+          - name: event_timestamp
+            description: "When the transaction occurred (ISO 8601 string with timezone)"
+          - name: ingestion_timestamp
+            description: "When the event was ingested into Kafka"
+          - name: device_id
+            description: "Device identifier (format: device_XXXXX)"
+          - name: ip_address
+            description: "User IP address masked to /24 subnet"
+          - name: city
+            description: "User city (e.g., Mumbai, Delhi, Bangalore)"
+          - name: country
+            description: "ISO 3166-1 alpha-2 country code (e.g., IN)"
+          - name: _kafka_topic
+            description: "Source Kafka topic name"
+          - name: _kafka_partition
+            description: "Kafka partition number"
+          - name: _kafka_offset
+            description: "Kafka message offset within partition"
+          - name: _kafka_timestamp
+            description: "Kafka broker timestamp"
+          - name: _processing_timestamp
+            description: "When Spark processed this record"
+          - name: event_ts_parsed
+            description: "Parsed event timestamp (added by Spark)"
+          - name: event_date
+            description: "Date extracted from event_timestamp (partition column)"
+          - name: event_hour
+            description: "Hour extracted from event_timestamp (partition column)"
