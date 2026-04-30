@@ -102,18 +102,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ============================================================
-  # Kafka Connect + Debezium (CDC)
-  # ============================================================
-  # Debezium reads Postgres WAL (write-ahead log) and publishes
-  # every INSERT/UPDATE/DELETE as a Kafka event. This is CDC —
-  # Change Data Capture. No polling, no batch dumps.
-  #
-  # Why this matters in fintech:
-  #   When a merchant's risk_tier changes from 'low' to 'critical',
-  #   the fraud scoring system needs to know IMMEDIATELY — not
-  #   after tonight's batch ETL. CDC gives sub-second latency.
-  # ============================================================
   kafka-connect:
     image: debezium/connect:2.5
     container_name: kafka-connect
@@ -133,7 +121,6 @@ services:
       CONFIG_STORAGE_REPLICATION_FACTOR: 1
       OFFSET_STORAGE_REPLICATION_FACTOR: 1
       STATUS_STORAGE_REPLICATION_FACTOR: 1
-      # Converters: use JSON with schemas for Debezium events
       KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       KEY_CONVERTER_SCHEMAS_ENABLE: "true"
@@ -144,6 +131,55 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  # ============================================================
+  # Airflow — Pipeline Orchestrator
+  # ============================================================
+  # Runs in standalone mode (webserver + scheduler in one container).
+  # Uses SequentialExecutor — fine for dev, production uses Celery/K8s.
+  #
+  # Why Airflow?
+  #   Without orchestration, our pipeline is "run these 5 scripts
+  #   manually in order." Airflow makes it: "run automatically at
+  #   6am, retry on failure, alert if SLA breached, skip downstream
+  #   tasks if upstream fails."
+  # ============================================================
+  airflow:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      _PIP_ADDITIONAL_REQUIREMENTS: >-
+        dbt-postgres==1.8.2
+        redis
+        psycopg2-binary
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DATABASE: fraud_reference
+      PG_USER: fraud_admin
+      PG_PASSWORD: changeme_local_only
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    volumes:
+      - ./orchestration/airflow/dags:/opt/airflow/dags
+      - ./warehouse/dbt/fraud_warehouse:/opt/airflow/dbt
+      - ./feature_store:/opt/airflow/feature_store
+    command: airflow standalone
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
 
 volumes:
   kafka_data:

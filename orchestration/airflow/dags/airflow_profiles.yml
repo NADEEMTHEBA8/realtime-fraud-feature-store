@@ -1,0 +1,12 @@
+fraud_warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: postgres
+      port: 5432
+      user: fraud_admin
+      password: changeme_local_only
+      dbname: fraud_reference
+      schema: silver
+      threads: 2
