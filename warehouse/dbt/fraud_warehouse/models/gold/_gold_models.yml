@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: gold_user_fraud_features
+    description: >
+      Per-user rolling fraud features across 1h/24h/7d windows.
+      Includes transaction velocity, amount statistics, merchant diversity,
+      failure rates, refund patterns, and city diversity.
+      Feeds fraud model training (batch) and Redis feature store (real-time).
+    columns:
+      - name: user_id
+        description: "Primary key — one row per user"
+        data_tests:
+          - unique
+          - not_null
+      - name: txn_count_total
+        description: "Total transaction count for this user"
+        data_tests:
+          - not_null
+      - name: txn_sum_total
+        description: "Total transaction amount for this user"
+        data_tests:
+          - not_null
+      - name: failure_rate_24h
+        description: "Fraction of failed transactions in last 24h (0 to 1)"
+        data_tests:
+          - not_null
+      - name: refund_rate_7d
+        description: "Fraction of refund transactions in last 7 days (0 to 1)"
+        data_tests:
+          - not_null
+
+  - name: gold_daily_merchant_stats
+    description: >
+      Daily aggregated statistics per merchant. Includes volume,
+      amount metrics, failure rate, refund rate, and anomaly signals.
+      Feeds merchant risk monitoring dashboards.
+    columns:
+      - name: merchant_id
+        data_tests:
+          - not_null
+      - name: event_date
+        data_tests:
+          - not_null
+      - name: txn_count
+        data_tests:
+          - not_null
+      - name: total_amount
+        data_tests:
+          - not_null
