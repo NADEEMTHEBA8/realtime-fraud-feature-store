@@ -1,0 +1,39 @@
+version: 2
+
+models:
+  - name: recon_bronze_silver
+    description: >
+      Reconciliation between bronze and silver layers. Verifies every
+      record is accounted for: bronze_count = silver_count + filtered_count.
+      An unbalanced result indicates data loss or a validation bug.
+    columns:
+      - name: recon_status
+        description: "BALANCED if all records accounted for, UNBALANCED if not"
+        data_tests:
+          - accepted_values:
+              values: ['BALANCED']
+      - name: unaccounted_records
+        description: "Must be 0 — any unaccounted records indicate data loss"
+        data_tests:
+          - accepted_values:
+              values: ['0']
+      - name: bronze_total
+        data_tests:
+          - not_null
+      - name: silver_total
+        data_tests:
+          - not_null
+
+  - name: dq_pipeline_health
+    description: >
+      Single-row pipeline health summary for ops dashboards.
+      Includes volume metrics, enrichment coverage, fraud signal
+      counts, and merchant risk indicators.
+    columns:
+      - name: pipeline_status
+        data_tests:
+          - not_null
+      - name: bronze_total
+        data_tests:
+          - not_null
+          - positive_value

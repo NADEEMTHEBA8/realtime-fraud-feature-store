@@ -19,9 +19,3 @@ models:
     staging:
       +materialized: view
       +schema: silver
-    intermediate:
-      +materialized: table
-      +schema: gold
-    gold:
-      +materialized: table
-      +schema: gold
