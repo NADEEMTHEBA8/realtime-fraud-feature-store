@@ -50,7 +50,7 @@ def create_spark_session(app_name: str = "fraud-feature-store") -> SparkSession:
     # Read MinIO credentials from environment (same .env as docker-compose)
     minio_endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
     minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-    minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+    minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
 
     jar_paths = get_jar_paths()
 

@@ -62,18 +62,27 @@ TRANSACTION_SCHEMA = StructType([
     StructField("transaction_id", StringType(), nullable=False),
     StructField("user_id", StringType(), nullable=False),
     StructField("merchant_id", StringType(), nullable=False),
-    StructField("amount", StringType(), nullable=False),
+    StructField("amount", StringType(), nullable=False),       # String, not Decimal — we parse it safely later
     StructField("currency", StringType(), nullable=True),
     StructField("transaction_type", StringType(), nullable=True),
     StructField("status", StringType(), nullable=True),
     StructField("payment_method", StringType(), nullable=True),
-    StructField("event_timestamp", StringType(), nullable=False),
-    StructField("ingestion_timestamp", StringType(), nullable=True),
-    StructField("device_id", StringType(), nullable=True),
+    StructField("merchant_category", StringType(), nullable=True),
+    StructField("merchant_name", StringType(), nullable=True),
+    StructField("user_email_hash", StringType(), nullable=True),
+    StructField("user_phone_hash", StringType(), nullable=True),
+    StructField("user_city", StringType(), nullable=True),
+    StructField("user_country", StringType(), nullable=True),
     StructField("ip_address", StringType(), nullable=True),
-    StructField("city", StringType(), nullable=True),
-    StructField("country", StringType(), nullable=True),
+    StructField("device_type", StringType(), nullable=True),
+    StructField("channel", StringType(), nullable=True),
+    StructField("event_timestamp", StringType(), nullable=False),  # String — we cast after parsing
+    StructField("ingestion_timestamp", StringType(), nullable=True),
+    StructField("user_kyc_level", StringType(), nullable=True),
+    StructField("user_risk_score", StringType(), nullable=True),
+    StructField("merchant_risk_tier", StringType(), nullable=True),
 ])
+
 
 def build_kafka_source(spark: SparkSession, kafka_bootstrap: str, topic: str) -> DataFrame:
     """
