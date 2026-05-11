@@ -1,341 +1,142 @@
-# Real-Time Fraud Feature Store
+# realtime-fraud-feature-store
 
-A production-grade fintech data platform that ingests payment events through Kafka, enriches them with rolling fraud features via dbt's medallion architecture, and serves features through a sub-millisecond Redis-backed API — mimicking the infrastructure behind PhonePe, Razorpay, and CRED.
+Fintech transaction pipeline with a fraud feature store. Takes payment events from Kafka, runs them through a medallion architecture in dbt, and serves precomputed fraud features from Redis in under 1ms.
 
-> **This project builds the data infrastructure that feeds a fraud model — not the ML model itself.**
+I built this to understand how companies like Razorpay and PhonePe structure their data platforms — specifically the infrastructure that feeds fraud models, not the ML model itself.
 
----
+## What it does
 
-## Architecture
+Payment events go into Kafka → Spark writes them as Parquet to MinIO (bronze layer) → dbt transforms and validates them in Postgres (silver/gold) → a loader pushes computed features to Redis → FastAPI serves them.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          AIRFLOW (Orchestrator)                          │
-│    dbt_snapshot  →  dbt_run  →  dbt_test (gate)  →  feature_loader      │
-└────────────────────────────┬─────────────────────────────────────────────┘
-                             │
-    ┌───────────┐      ┌─────▼──────┐      ┌──────────┐      ┌──────────┐
-    │   Kafka   │─────▶│   Spark    │─────▶│  MinIO   │      │  Redis   │
-    │  (Events) │      │  (Bronze)  │      │(Parquet) │      │(Features)│
-    └─────┬─────┘      └────────────┘      └──────────┘      └────▲─────┘
-          │                                                       │
-    ┌─────▼─────┐      ┌────────────────────────────────┐   ┌────┴─────┐
-    │Transaction│      │         PostgreSQL              │   │ FastAPI  │
-    │ Generator │      │   bronze → silver → gold        │   │  (API)   │
-    └───────────┘      │  (dbt medallion architecture)   │   │  <1ms    │
-                       └────────────┬───────────────────┘   └──────────┘
-    ┌───────────┐                   │
-    │ Debezium  │──▶ CDC: merchants, users (real-time sync)
-    │   (CDC)   │
-    └───────────┘
-```
-
----
-
-## The 60-Second Pitch
-
-> *"I built a fintech transaction pipeline that ingests payment events through Kafka and CDC, enriches them with rolling fraud features via dbt's medallion architecture, and serves features to a real-time scoring API via Redis in under 1 millisecond. Airflow orchestrates the batch layer with data quality gates — if any of the 53 dbt tests fail, the feature loader is blocked, ensuring the fraud API never serves corrupt data. The hard problem I focused on was reconciliation between the streaming and batch views of the same transaction."*
-
----
-
-## Key Metrics
-
-| Metric | Value |
-|--------|-------|
-| Docker services | **7** (Kafka, Spark, Postgres, Redis, MinIO, Debezium, Airflow) |
-| dbt models | **8** (3 silver views + 3 gold tables + 2 data quality) |
-| dbt snapshots | **2** (SCD Type 2 for merchants + users) |
-| Data quality tests | **53** (all passing) |
-| Fraud features | **25+** per user across 1h/24h/7d rolling windows |
-| Feature serving latency | **<1ms** (measured: 0.998ms) |
-| Reconciliation | **BALANCED** — zero unaccounted records |
-| Airflow DAG tasks | **4** (snapshot → run → test → load) |
-
----
-
-## Tech Stack
-
-| Component | Technology | Why This Choice |
-|-----------|-----------|----------------|
-| Streaming | Kafka (KRaft mode) | Industry standard, per-user ordering via partition keys |
-| CDC | Debezium + Kafka Connect | WAL-based, zero source DB impact, sub-second latency |
-| Stream Processing | PySpark Structured Streaming | Exactly-once semantics, checkpoint-based recovery |
-| Data Lake | MinIO (S3-compatible) | Parquet storage, locally mimics GCS/S3 |
-| Warehouse | PostgreSQL | ANSI SQL, dbt-portable to BigQuery/Snowflake |
-| Transformations | dbt-core | Medallion architecture, 53 data quality tests |
-| Feature Store | Redis | Sub-millisecond serving for real-time scoring |
-| Feature API | FastAPI | Async, auto-generated OpenAPI docs |
-| Orchestration | Airflow 2.x | DAG-based scheduling with quality gates |
-| Containerization | Docker Compose | 7 services, health checks, named volumes |
-
----
-
-## Key Features
-
-### Medallion Architecture (Bronze → Silver → Gold)
-
-- **Bronze:** Raw JSON events preserved as Parquet on MinIO with Kafka metadata for lineage
-- **Silver:** Type-cast, validated, filtered — 3 staging views with schema enforcement
-- **Gold:** Enriched transactions (3-way join), 25+ rolling fraud features, daily merchant stats
-
-### 25+ Fraud Features
-
-| Category | Features | What It Catches |
-|----------|----------|----------------|
-| **Velocity** | txn_count_1h, txn_count_24h, txn_count_7d | Card testing, bot attacks |
-| **Amount** | txn_sum, txn_avg, txn_max per window | Account compromise |
-| **Diversity** | unique_merchants, unique_cities, payment_methods | Stolen card testing |
-| **Failure** | failed_txn_count_24h, failure_rate_24h | Rapid card number testing |
-| **Refunds** | refund_count_7d, refund_rate_7d | Refund fraud |
-| **Temporal** | late_night_txn_count, z-score deviation | Off-hours activity |
-
-All features computed across **1h / 24h / 7d rolling windows**.
-
-### CDC with Debezium
-
-Merchant risk tier and user KYC level changes stream from PostgreSQL WAL to Kafka in sub-second latency. No polling, no batch dumps, zero source database impact.
-
-### SCD Type 2
-
-Historical dimension tracking via dbt snapshots. When a merchant's risk tier changes from `low` to `critical`, both the before and after states are preserved with validity timestamps:
+Debezium handles CDC from Postgres for merchant and user reference data. Airflow ties the batch side together.
 
 ```
-merchant_id    | risk_tier | valid_from          | valid_to
-merch_8ec4...  | medium    | 2026-04-29 19:09    | 2026-04-30 12:16  ← closed
-merch_8ec4...  | high      | 2026-04-30 12:16    | NULL              ← current
+Kafka ──▶ Spark ──▶ MinIO (parquet)
+                        │
+                   load to Postgres
+                        │
+              dbt (staging → enriched → features)
+                        │
+                   loader script
+                        │
+                      Redis ──▶ FastAPI (<1ms)
+
+Separately:
+  Debezium watches Postgres ──▶ Kafka CDC topics
+  Airflow runs: snapshot → dbt run → dbt test → feature load
 ```
 
-### Reconciliation
+## Stack
 
-Every record is accounted for across pipeline layers:
+- **Kafka** (KRaft, no Zookeeper) — message broker
+- **PySpark** — streaming bronze ingestion
+- **MinIO** — S3-compatible object storage for parquet
+- **PostgreSQL** — warehouse (using dbt-postgres, SQL is portable to BigQuery)
+- **dbt** — transformations, tests, snapshots
+- **Debezium** — CDC from Postgres WAL
+- **Redis** — feature serving
+- **FastAPI** — feature API
+- **Airflow** — batch orchestration
+- **Docker Compose** — runs all 7 services
+
+I originally planned to use BigQuery but couldn't get a GCP account set up (card issues). Postgres works fine — the SQL is ANSI standard so swapping the dbt adapter is a config change.
+
+## Numbers
+
+- 7 containers running locally
+- 8 dbt models (3 staging views, 3 gold tables, 2 data quality)
+- 2 dbt snapshots (SCD Type 2 on merchants and users)
+- 53 dbt tests passing
+- 25+ fraud features per user (velocity, amounts, diversity, failure rates — across 1h/24h/7d windows)
+- Feature lookup from Redis: roughly 1ms on my MacBook Air
+
+## Project layout
 
 ```
-Pipeline Status : BALANCED
-Bronze          : 2,617
-Silver          : 2,617
-Filtered        : 0
-Unaccounted     : 0
+ingestion/transaction_generator/src/   # generates realistic payment events, publishes to kafka
+streaming/spark/src/                   # reads kafka, writes parquet to minio
+warehouse/dbt/fraud_warehouse/         # all dbt models, snapshots, tests, macros
+feature_store/src/                     # loader (postgres→redis) and fastapi app
+orchestration/airflow/dags/            # pipeline DAG
+infra/docker/postgres/                 # reference table SQL
+docs/adr/                             # some notes on why I made certain choices
 ```
 
-### Data Quality Gates
+## Running it
 
-53 dbt tests act as a gate in Airflow — feature loading is blocked if any test fails. Tests include: `unique`, `not_null`, `accepted_values`, `positive_value`, `not_future_timestamp`, `value_in_range`, and reconciliation checks.
-
-### Sub-Millisecond Feature Serving
-
-FastAPI + Redis serves 25+ fraud features per user in **<1ms**. Batch endpoint uses Redis MGET for single-round-trip multi-user lookups. Health endpoint monitors feature freshness with TTL-based staleness detection.
-
----
-
-## Project Structure
-
-```
-realtime-fraud-feature-store/
-├── docker-compose.yml                 # 7 services
-├── ingestion/
-│   └── transaction_generator/src/     # Pydantic schemas, Kafka producer
-│       ├── schemas.py                 # TransactionEvent with Decimal validation
-│       ├── profiles.py                # 5K users, 500 merchants, realistic distributions
-│       ├── generator.py               # Log-normal amounts, hour-of-day weights
-│       ├── kafka_producer.py          # acks=all, user_id partition key
-│       └── run.py                     # Entry point (10 TPS default)
-├── streaming/
-│   └── spark/
-│       ├── jars/                      # Pre-downloaded Kafka + S3A JARs (gitignored)
-│       └── src/
-│           ├── config.py              # SparkSession factory (Kafka + MinIO)
-│           └── bronze_ingest.py       # Kafka → Parquet with dead-letter routing
-├── warehouse/
-│   └── dbt/fraud_warehouse/
-│       ├── snapshots/                 # SCD Type 2 (snp_merchants, snp_users)
-│       ├── macros/                    # 3 custom generic tests
-│       └── models/
-│           ├── staging/               # stg_transactions, stg_merchants, stg_users
-│           ├── intermediate/          # int_transactions_enriched (3-way join)
-│           ├── gold/                  # gold_user_fraud_features, gold_daily_merchant_stats
-│           └── data_quality/          # recon_bronze_silver, dq_pipeline_health
-├── feature_store/
-│   └── src/
-│       ├── loader.py                  # Postgres → Redis (pipelined writes)
-│       └── api.py                     # FastAPI with 4 endpoints
-├── orchestration/
-│   └── airflow/dags/
-│       ├── fraud_pipeline_dag.py      # 4-task DAG with quality gate
-│       └── profiles.yml               # dbt connection for Airflow container
-├── infra/docker/postgres/             # Reference table init SQL
-├── docs/
-│   ├── adr/                           # 7 Architecture Decision Records
-│   └── day*-recap.md                  # Daily build recaps with interview prep
-└── load_bronze_to_postgres.py         # One-time bronze data loader
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Docker Desktop (6+ CPUs, 10GB RAM)
-- Python 3.11 with venv
-- Java 17 (for PySpark)
-
-### 1. Start Infrastructure
+You need Docker Desktop (give it 6+ CPUs and 10GB RAM), Python 3.11, and Java 17 (Spark needs it).
 
 ```bash
-git clone https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store.git
-cd realtime-fraud-feature-store
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install pyspark==3.5.1 dbt-postgres==1.8.2 fastapi uvicorn redis psycopg2-binary pandas
+# start everything
 docker compose up -d
-docker compose ps             # Verify all 7 containers healthy
-```
+docker compose ps   # should show 7 healthy containers
 
-### 2. Generate Transaction Events
+# generate some events (~30 sec, then ctrl+c)
+python -m ingestion.transaction_generator.src.run
 
-```bash
-python -m ingestion.transaction_generator.src.run    # Ctrl+C after ~30 seconds
-```
+# run spark bronze ingestion (~90 sec, then ctrl+c)
+python -m streaming.spark.src.bronze_ingest
 
-### 3. Run Bronze Ingestion (Spark)
-
-```bash
-python -m streaming.spark.src.bronze_ingest          # Ctrl+C after ~90 seconds
-```
-
-### 4. Load Bronze Data to Postgres
-
-```bash
+# load bronze data into postgres
 python load_bronze_to_postgres.py
-```
 
-### 5. Run dbt Pipeline
-
-```bash
+# run dbt
 cd warehouse/dbt/fraud_warehouse
-dbt snapshot && dbt run && dbt test    # 2 snapshots, 8 models, 53 tests
-```
+dbt snapshot && dbt run && dbt test
 
-### 6. Load Features to Redis & Start API
-
-```bash
+# load features to redis and start api
 cd ../../..
 python -m feature_store.src.loader
 uvicorn feature_store.src.api:app --port 8000
+
+# test it
+curl localhost:8000/features/user/user_2765df9165 | python -m json.tool
 ```
 
-### 7. Query Features
+## Things I'm happy with
 
-```bash
-# Health check with feature freshness
-curl http://localhost:8000/health | python -m json.tool
+**Reconciliation** — there's a dbt model that checks `bronze_count = silver_count + filtered_count`. If it doesn't add up, the test fails. Currently 2,617 = 2,617 + 0 (the generator makes clean data, but the filtering logic is there for dirty data).
 
-# Get fraud features for a user (<1ms)
-curl http://localhost:8000/features/user/user_2765df9165 | python -m json.tool
+**SCD Type 2** — I updated a merchant's risk tier from 'medium' to 'high', re-ran `dbt snapshot`, and got two rows with validity timestamps. Fraud investigators need to know what the risk tier was *at the time* of the transaction, not just what it is now.
 
-# Batch lookup
-curl -X POST http://localhost:8000/features/batch \
-  -H "Content-Type: application/json" \
-  -d '{"user_ids": ["user_2765df9165", "user_99389bd371"]}' | python -m json.tool
+**Quality gate** — Airflow runs dbt tests before loading features. If tests fail, the loader doesn't run. Old features stay in Redis until TTL expires. I'd rather serve slightly stale features than broken ones.
 
-# Swagger UI
-open http://localhost:8000/docs
-```
+**The features themselves** — 25+ per user: transaction counts per hour/day/week, amount stats, how many unique merchants they hit, failure rates, refund rates, whether they're transacting from unusual cities, late-night activity, z-score on latest transaction amount. These are the kinds of signals real fraud systems use.
 
----
+## What's missing (and I know it)
 
-## API Endpoints
+- No auth on the API — wide open right now
+- No TLS anywhere — everything is plaintext
+- Credentials are hardcoded defaults (fine for local, obviously not for prod)
+- No monitoring or alerting
+- No CI/CD
+- Single Kafka partition (would bottleneck at scale)
+- The reconciliation hasn't been stress-tested with intentionally bad data
+- The latency number is from a single curl, not a proper benchmark with percentiles
 
-| Endpoint | Method | Description | Latency |
-|----------|--------|-------------|---------|
-| `/health` | GET | Pipeline health + feature freshness | <1ms |
-| `/features/user/{user_id}` | GET | 25+ fraud features for a user | <1ms |
-| `/features/merchant/{merchant_id}` | GET | Latest daily stats for a merchant | <1ms |
-| `/features/batch` | POST | Batch lookup for up to 100 users | <2ms |
-| `/docs` | GET | Interactive Swagger UI | — |
+## API
 
----
+| Endpoint | What it does |
+|----------|-------------|
+| `GET /health` | Feature freshness + Redis status |
+| `GET /features/user/{id}` | All fraud features for one user |
+| `GET /features/merchant/{id}` | Latest daily stats for a merchant |
+| `POST /features/batch` | Bulk lookup (up to 100 users) |
+| `GET /docs` | Swagger UI |
 
-## Data Quality Tests
+## Why I made certain choices
 
-| Category | Count | Examples |
-|----------|-------|---------|
-| Uniqueness | 5 | transaction_id, user_id, merchant_id |
-| Not-null | 26 | All required columns across all models |
-| Accepted values | 8 | transaction_type, status, payment_method, currency |
-| Positive value (custom) | 6 | amount, txn_count, total_amount |
-| Value in range (custom) | 4 | failure_rate (0-1), refund_rate (0-1) |
-| No future timestamp (custom) | 1 | event_timestamp |
-| Reconciliation | 3 | BALANCED status, zero unaccounted records |
-| **Total** | **53** | **All passing** |
+| Choice | Why |
+|--------|-----|
+| KRaft Kafka | Didn't want to run Zookeeper too. It's deprecated anyway. |
+| Spark on host not Docker | My MacBook has 16GB. Docker was already using ~4GB. Spark in Docker would've killed it. |
+| Downloaded JARs manually | `--packages` pulls from Maven at runtime. Broke on me once, never again. |
+| Postgres not BigQuery | GCP wouldn't let me create an account. The SQL is the same either way. |
+| NUMERIC for money | Float arithmetic is wrong for currency. Not debatable. |
+| Redis for serving | Need sub-10ms for fraud scoring. Postgres can't do that consistently. |
+| dbt tests before feature load | If the data is bad, don't serve it. Let the old features expire naturally. |
 
 ---
 
-## Infrastructure Services
-
-| Service | Port | Access |
-|---------|------|--------|
-| Kafka UI | 8080 | http://localhost:8080 |
-| MinIO Console | 9001 | http://localhost:9001 |
-| Airflow | 8081 | http://localhost:8081 |
-| Feature API | 8000 | http://localhost:8000/docs |
-| Kafka Connect (Debezium) | 8083 | REST API |
-| PostgreSQL | 5432 | `psql -U fraud_admin -d fraud_reference` |
-| Redis | 6379 | `redis-cli` |
-
----
-
-## Architecture Decision Records
-
-| ADR | Decision | Trade-off |
-|-----|----------|-----------|
-| [ADR-001](docs/adr/001-kafka-kraft-mode.md) | Kafka in KRaft mode (no Zookeeper) | Simpler ops, fewer containers |
-| [ADR-002](docs/adr/002-004-006-combined.md) | PySpark locally, not in Docker | Saves 4GB RAM on 16GB MacBook |
-| [ADR-003](docs/adr/002-004-006-combined.md) | Pre-downloaded JARs, not `--packages` | Deterministic builds, offline-capable |
-| [ADR-004](docs/adr/002-004-006-combined.md) | Postgres as warehouse (not BigQuery) | Portable SQL, no cloud dependency for dev |
-| [ADR-005](docs/adr/005-decimal-not-float.md) | NUMERIC for money, never FLOAT | Precision correctness for fintech |
-| [ADR-006](docs/adr/002-004-006-combined.md) | Redis for feature serving | Sub-ms latency for real-time scoring |
-| [ADR-007](docs/adr/007-dbt-quality-gate.md) | dbt tests as Airflow quality gate | Corrupt data never reaches serving layer |
-
----
-
-## The dbt DAG
-
-```
-bronze.transactions ──▶ stg_transactions ──┐
-                                            ├──▶ int_transactions_enriched ──┬──▶ gold_daily_merchant_stats
-public.merchants ──▶ stg_merchants ────────┤                                │
-                                            │                                ├──▶ dq_pipeline_health
-public.users ──▶ stg_users ────────────────┘                                │
-                                                                             │
-                        stg_transactions ──────▶ gold_user_fraud_features ──┘
-                                                                             │
-bronze + silver + enriched + features ─────────▶ recon_bronze_silver ────────┘
-```
-
-**8 models • 2 snapshots • 3 sources • 53 tests**
-
----
-
-## Production Considerations
-
-This is a **portfolio project** demonstrating data engineering patterns. For production deployment, the following would be added:
-
-| Area | What's Missing | Production Solution |
-|------|---------------|-------------------|
-| **Security** | No API authentication | OAuth2/JWT with API keys, mTLS between services |
-| **Encryption** | Plaintext connections | TLS 1.2+ on all connections, encryption at rest |
-| **Secrets** | Hardcoded credentials (dev only) | HashiCorp Vault / AWS Secrets Manager |
-| **Monitoring** | No observability stack | Prometheus + Grafana for Kafka lag, API latency, feature freshness |
-| **Scaling** | Single Kafka partition | Multi-partition topics, Redis Cluster, API replicas + load balancer |
-| **CI/CD** | No automated pipeline | GitHub Actions for lint, test, dbt compile, Docker build |
-| **Compliance** | Partial PII handling | Full PCI-DSS alignment, data retention policies, audit logging |
-
----
-
-## Author
-
-**Nadeem Theba**
-
-- GitHub: [NADEEMTHEBA8](https://github.com/NADEEMTHEBA8)
-- Email: nadeemtheba8@gmail.com
-- Education: MSc Data Science, University of Hertfordshire (UK)
+Nadeem Theba — nadeemtheba8@gmail.com
+MSc Data Science, University of Hertfordshire
