@@ -1,22 +1,36 @@
-.PHONY: help up down logs ps clean install fmt lint test gen-tx
+.PHONY: help up down logs ps clean install fmt lint test gen bronze load dbt dbt-test dbt-snapshot features api health
 
 help:
-	@echo "Available targets:"
-	@echo "  up        - Start all docker services"
-	@echo "  down      - Stop all docker services"
-	@echo "  ps        - Show running services"
-	@echo "  logs      - Tail logs (use SVC=kafka to filter)"
-	@echo "  clean     - Stop services and remove volumes (destroys data)"
-	@echo "  install   - Install python dependencies"
-	@echo "  fmt       - Format python code with ruff"
-	@echo "  lint      - Lint python code with ruff"
-	@echo "  test      - Run all unit tests"
+	@echo "infra:"
+	@echo "  up        - start all docker services"
+	@echo "  down      - stop all docker services"
+	@echo "  ps        - show running services"
+	@echo "  logs      - tail logs (use SVC=kafka to filter)"
+	@echo "  clean     - stop services and remove volumes"
+	@echo ""
+	@echo "pipeline:"
+	@echo "  gen       - run transaction generator (ctrl+c to stop)"
+	@echo "  bronze    - run spark bronze ingestion (ctrl+c to stop)"
+	@echo "  load      - load bronze parquet data into postgres"
+	@echo "  dbt       - run dbt snapshot + run + test"
+	@echo "  dbt-test  - run dbt tests only"
+	@echo "  features  - load features from postgres to redis"
+	@echo "  api       - start the feature serving api"
+	@echo ""
+	@echo "checks:"
+	@echo "  health    - check api health endpoint"
+	@echo "  recon     - check reconciliation status"
+	@echo "  test      - run python unit tests"
+	@echo "  lint      - lint with ruff"
+	@echo "  fmt       - format with ruff"
+
+# --- infra ---
 
 up:
 	docker compose up -d
-	@echo "Services starting. Check status with: make ps"
 	@echo "Kafka UI:  http://localhost:8080"
 	@echo "MinIO UI:  http://localhost:9001"
+	@echo "Airflow:   http://localhost:8081"
 
 down:
 	docker compose down
@@ -33,7 +47,42 @@ endif
 
 clean:
 	docker compose down -v
-	@echo "All containers and volumes removed."
+	@echo "all containers and volumes removed."
+
+# --- pipeline ---
+
+gen:
+	python -m ingestion.transaction_generator.src.run
+
+bronze:
+	python -m streaming.spark.src.bronze_ingest
+
+load:
+	python load_bronze_to_postgres.py
+
+dbt:
+	cd warehouse/dbt/fraud_warehouse && dbt snapshot && dbt run && dbt test
+
+dbt-test:
+	cd warehouse/dbt/fraud_warehouse && dbt test
+
+dbt-snapshot:
+	cd warehouse/dbt/fraud_warehouse && dbt snapshot
+
+features:
+	python -m feature_store.src.loader
+
+api:
+	uvicorn feature_store.src.api:app --reload --port 8000
+
+# --- checks ---
+
+health:
+	@curl -s localhost:8000/health | python -m json.tool
+
+recon:
+	@docker compose exec postgres psql -U fraud_admin -d fraud_reference -c \
+		"SELECT recon_status, bronze_total, silver_total, unaccounted_records FROM silver_data_quality.recon_bronze_silver;"
 
 install:
 	pip install -e ".[dev]"
