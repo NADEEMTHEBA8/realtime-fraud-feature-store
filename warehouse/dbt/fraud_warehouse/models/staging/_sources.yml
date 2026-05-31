@@ -23,7 +23,7 @@ sources:
           - name: status
             description: "SUCCESS, FAILED, or PENDING"
           - name: payment_method
-            description: "UPI, CARD, NET_BANKING, or WALLET"
+            description: "UPI, CARD, NETBANKING, or WALLET"
           - name: event_timestamp
             description: "When the transaction occurred (ISO 8601 string with timezone)"
           - name: ingestion_timestamp

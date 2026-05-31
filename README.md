@@ -1,140 +1,165 @@
 # realtime-fraud-feature-store
 
-Fintech transaction pipeline with a fraud feature store. Takes payment events from Kafka, runs them through a medallion architecture in dbt, and serves precomputed fraud features from Redis in under 1ms.
+Local event-driven fraud analytics prototype. Payment events flow through
+Kafka, get processed by Spark into a medallion layout, are modeled in dbt,
+and the resulting per-user fraud features are served from Redis behind a
+FastAPI endpoint.
 
-I built this to understand how companies like Razorpay and PhonePe structure their data platforms — specifically the infrastructure that feeds fraud models, not the ML model itself.
+This is a portfolio prototype, not a production system. The goal was to
+build the data infrastructure that *feeds* a fraud model — ingestion,
+streaming, modeling, feature serving, orchestration — not the model itself.
 
-## What it does
-
-Payment events go into Kafka → Spark writes them as Parquet to MinIO (bronze layer) → dbt transforms and validates them in Postgres (silver/gold) → a loader pushes computed features to Redis → FastAPI serves them.
-
-Debezium handles CDC from Postgres for merchant and user reference data. Airflow ties the batch side together.
+## Architecture
 
 ```
-Kafka ──▶ Spark ──▶ MinIO (parquet)
-                        │
-                   load to Postgres
-                        │
-              dbt (staging → enriched → features)
-                        │
-                   loader script
-                        │
-                      Redis ──▶ FastAPI (<1ms)
+transaction generator ──▶ Kafka (transactions.raw)
+                            │
+                   Spark Structured Streaming
+                            │
+                   MinIO  s3a://bronze/  (partitioned Parquet)
+                            │
+                   load_bronze_to_postgres.py
+                            │
+                   dbt: staging ──▶ enriched ──▶ gold features
+                            │
+                   feature loader (Postgres ──▶ Redis)
+                            │
+                          FastAPI  (feature lookups)
 
-Separately:
-  Debezium watches Postgres ──▶ Kafka CDC topics
-  Airflow runs: snapshot → dbt run → dbt test → feature load
+Reference data (users, merchants):
+   Postgres tables ──▶ Debezium ──▶ Kafka CDC topics (fraud_cdc.*)
+   dbt reads the tables directly; snapshots track SCD Type 2 history.
+
+Orchestration:
+   Airflow DAG runs dbt snapshot ──▶ run ──▶ test ──▶ feature load
 ```
 
 ## Stack
 
-- **Kafka** (KRaft, no Zookeeper) — message broker
-- **PySpark** — streaming bronze ingestion
-- **MinIO** — S3-compatible object storage for parquet
-- **PostgreSQL** — warehouse (using dbt-postgres, SQL is portable to BigQuery)
-- **dbt** — transformations, tests, snapshots
-- **Debezium** — CDC from Postgres WAL
-- **Redis** — feature serving
-- **FastAPI** — feature API
-- **Airflow** — batch orchestration
-- **Docker Compose** — runs all 7 services
+- **Kafka** (KRaft mode, no Zookeeper) — event transport
+- **PySpark** — Structured Streaming bronze ingestion
+- **MinIO** — S3-compatible object storage for Parquet
+- **PostgreSQL** — warehouse (dbt-postgres adapter)
+- **dbt** — transformations, tests, SCD2 snapshots
+- **Debezium** — CDC from the Postgres WAL
+- **Redis** — feature serving store
+- **FastAPI** — feature lookup API
+- **Airflow** — batch orchestration (standalone, SequentialExecutor)
+- **Docker Compose** — runs the stack (7 long-running services plus a
+  one-shot MinIO bucket initializer)
 
-I originally planned to use BigQuery but couldn't get a GCP account set up (card issues). Postgres works fine — the SQL is ANSI standard so swapping the dbt adapter is a config change.
+Postgres stands in for a cloud warehouse. The dbt SQL is standard enough
+that swapping the adapter (e.g. to BigQuery) is mostly a profile change,
+though it has not been tested against another warehouse.
 
-## Numbers
+## How CDC works here
 
-- 7 containers running locally
-- 8 dbt models (3 staging views, 3 gold tables, 2 data quality)
-- 2 dbt snapshots (SCD Type 2 on merchants and users)
-- 53 dbt tests passing
-- 25+ fraud features per user (velocity, amounts, diversity, failure rates — across 1h/24h/7d windows)
-- Feature lookup from Redis: roughly 1ms on my MacBook Air
+`public.users` and `public.merchants` live in Postgres and are the CDC
+source. Debezium captures inserts and updates from the WAL and publishes
+them to `fraud_cdc.public.*` Kafka topics — visible in the Kafka UI.
+
+dbt reads those reference tables **directly** from Postgres (same instance,
+local dev) rather than consuming the CDC topics; there is no Kafka→warehouse
+sink in this prototype. The dbt snapshots provide the SCD Type 2 history.
+The CDC pipeline is real and observable; wiring a sink connector back into
+the warehouse is the natural next step but is out of scope here.
+
+## What's in the warehouse
+
+- 8 dbt models: 3 staging views, 1 enriched intermediate table,
+  2 gold feature tables, 2 data-quality tables
+- 2 snapshots — SCD Type 2 on the users and merchants dimensions
+- Schema and data tests on every model: uniqueness, not-null,
+  accepted-values, plus custom range and reconciliation assertions
+- ~25 per-user fraud features (velocity, amount stats, merchant/payment
+  diversity, failure and refund rates, city diversity, late-night activity,
+  latest-amount z-score) across 1h / 24h / 7d windows
 
 ## Project layout
 
 ```
-ingestion/transaction_generator/src/   # generates realistic payment events, publishes to kafka
-streaming/spark/src/                   # reads kafka, writes parquet to minio
-warehouse/dbt/fraud_warehouse/         # all dbt models, snapshots, tests, macros
-feature_store/src/                     # loader (postgres→redis) and fastapi app
-orchestration/airflow/dags/            # pipeline DAG
-infra/docker/postgres/                 # reference table SQL
-docs/adr/                             # some notes on why I made certain choices
+ingestion/transaction_generator/src/   transaction generator + reference seeder
+streaming/spark/src/                   Kafka -> MinIO bronze ingestion
+warehouse/dbt/fraud_warehouse/         dbt models, snapshots, tests, macros
+feature_store/src/                     Postgres->Redis loader + FastAPI app
+orchestration/airflow/dags/            batch pipeline DAG + dbt profile
+infra/postgres/init/                   reference table DDL + CDC publication
+infra/debezium/                        Debezium connector config + register script
+load_bronze_to_postgres.py             bridges MinIO Parquet into Postgres
 ```
 
 ## Running it
 
-You need Docker Desktop (give it 6+ CPUs and 10GB RAM), Python 3.11, and Java 17 (Spark needs it).
+Requires Docker (allow it ~6 CPUs / 10GB RAM), Python 3.11, and Java 17
+for Spark. Spark runs on the host; everything else runs in containers.
 
 ```bash
-# start everything
-docker compose up -d
-docker compose ps   # should show 7 healthy containers
+pip install -e ".[dev]"
+pip install dbt-postgres==1.8.2
 
-# generate some events (~30 sec, then ctrl+c)
-python -m ingestion.transaction_generator.src.run
+# 1. start services
+make up                 # wait for services to report healthy
 
-# run spark bronze ingestion (~90 sec, then ctrl+c)
-python -m streaming.spark.src.bronze_ingest
+# 2. one-time setup
+make seed               # populate public.users / public.merchants
+make connector          # register the Debezium CDC connector
 
-# load bronze data into postgres
-python load_bronze_to_postgres.py
+# 3. ingestion (run, then ctrl+c after ~30s)
+make gen                # generate events into Kafka
 
-# run dbt
-cd warehouse/dbt/fraud_warehouse
-dbt snapshot && dbt run && dbt test
+# 4. streaming (run, then ctrl+c once the backlog is drained)
+make bronze             # Spark: Kafka -> MinIO bronze Parquet
 
-# load features to redis and start api
-cd ../../..
-python -m feature_store.src.loader
-uvicorn feature_store.src.api:app --port 8000
+# 5. warehouse
+make load               # MinIO Parquet -> Postgres bronze.transactions
+make dbt                # dbt snapshot + run + test
 
-# test it
-curl localhost:8000/features/user/user_2765df9165 | python -m json.tool
+# 6. serving
+make features           # Postgres gold -> Redis
+make api                # FastAPI on :8000
 ```
 
-## Things I'm happy with
+Pick a real user id from the warehouse, then query it:
 
-**Reconciliation** — there's a dbt model that checks `bronze_count = silver_count + filtered_count`. If it doesn't add up, the test fails. Currently 2,617 = 2,617 + 0 (the generator makes clean data, but the filtering logic is there for dirty data).
+```bash
+docker compose exec postgres psql -U fraud_admin -d fraud_reference -c \
+  "SELECT user_id FROM silver_gold.gold_user_fraud_features LIMIT 1;"
 
-**SCD Type 2** — I updated a merchant's risk tier from 'medium' to 'high', re-ran `dbt snapshot`, and got two rows with validity timestamps. Fraud investigators need to know what the risk tier was *at the time* of the transaction, not just what it is now.
+curl localhost:8000/features/user/<user_id> | python -m json.tool
+```
 
-**Quality gate** — Airflow runs dbt tests before loading features. If tests fail, the loader doesn't run. Old features stay in Redis until TTL expires. I'd rather serve slightly stale features than broken ones.
+The Airflow DAG (`fraud_feature_pipeline`, http://localhost:8081) runs the
+batch half — snapshot, run, test, feature load — on a 4-hour schedule.
+`dbt test` is a gate: if it fails, the feature load is skipped and the
+previous features stay in Redis until their TTL expires.
 
-**The features themselves** — 25+ per user: transaction counts per hour/day/week, amount stats, how many unique merchants they hit, failure rates, refund rates, whether they're transacting from unusual cities, late-night activity, z-score on latest transaction amount. These are the kinds of signals real fraud systems use.
+## Design notes
 
-## What's missing (and I know it)
+- **Reconciliation** — `recon_bronze_silver` asserts
+  `bronze_total = silver_total + filtered_count`. A non-zero
+  `unaccounted_records` fails a dbt test. The generator emits clean data,
+  so the filter path is exercised mainly by the validation rules in
+  `stg_transactions`.
+- **SCD Type 2** — update a merchant's `risk_tier` (e.g. MEDIUM → HIGH) in
+  Postgres, re-run `dbt snapshot`, and the snapshot table shows two rows
+  with validity timestamps. This answers "what was the risk tier *at the
+  time* of the transaction".
+- **NUMERIC for money** — amounts are cast to `NUMERIC(12,2)`; float
+  arithmetic is not acceptable for currency.
+- **Redis for serving** — feature lookups need single-digit-millisecond
+  reads, which Redis gives consistently and a SQL query against the
+  warehouse does not.
 
-- No auth on the API — wide open right now
-- No TLS anywhere — everything is plaintext
-- Credentials are hardcoded defaults (fine for local, obviously not for prod)
-- No monitoring or alerting
-- No CI/CD
-- Single Kafka partition (would bottleneck at scale)
-- The reconciliation hasn't been stress-tested with intentionally bad data
-- The latency number is from a single curl, not a proper benchmark with percentiles
+## Limitations
 
-## API
-
-| Endpoint | What it does |
-|----------|-------------|
-| `GET /health` | Feature freshness + Redis status |
-| `GET /features/user/{id}` | All fraud features for one user |
-| `GET /features/merchant/{id}` | Latest daily stats for a merchant |
-| `POST /features/batch` | Bulk lookup (up to 100 users) |
-| `GET /docs` | Swagger UI |
-
-## Why I made certain choices
-
-| Choice | Why |
-|--------|-----|
-| KRaft Kafka | Didn't want to run Zookeeper too. It's deprecated anyway. |
-| Spark on host not Docker | My MacBook has 16GB. Docker was already using ~4GB. Spark in Docker would've killed it. |
-| Downloaded JARs manually | `--packages` pulls from Maven at runtime. Broke on me once, never again. |
-| Postgres not BigQuery | GCP wouldn't let me create an account. The SQL is the same either way. |
-| NUMERIC for money | Float arithmetic is wrong for currency. Not debatable. |
-| Redis for serving | Need sub-10ms for fraud scoring. Postgres can't do that consistently. |
-| dbt tests before feature load | If the data is bad, don't serve it. Let the old features expire naturally. |
+- No auth or TLS — everything is plaintext, local only
+- Credentials are hardcoded local defaults
+- No monitoring, alerting, or CI/CD
+- Single Kafka partition — fine locally, would bottleneck under load
+- No Kafka→warehouse sink for CDC; dbt reads reference tables directly
+- Generator produces clean data; the validation/recon paths are not
+  stress-tested with deliberately malformed input
+- Feature serving has not been load-tested; no latency percentiles measured
 
 ---
 

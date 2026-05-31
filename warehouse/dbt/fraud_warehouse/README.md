@@ -1,15 +1,16 @@
-Welcome to your new dbt project!
+# fraud_warehouse (dbt)
 
-### Using the starter project
+Transforms bronze transaction data and CDC-sourced reference data into
+silver staging models, an enriched intermediate table, and gold feature
+tables.
 
-Try running the following commands:
-- dbt run
-- dbt test
+Layers:
+- `staging/`      typed/validated views over bronze + reference sources
+- `intermediate/` `int_transactions_enriched` — transactions joined to dims
+- `gold/`         user fraud features and daily merchant stats
+- `data_quality/` bronze-vs-silver reconciliation and a pipeline health summary
+- `snapshots/`    SCD Type 2 history for the users and merchants dimensions
 
+Run locally (Postgres on localhost, profile in this directory):
 
-### Resources:
-- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
-- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
-- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
-- Find [dbt events](https://events.getdbt.com) near you
-- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+    dbt snapshot && dbt run && dbt test

@@ -22,7 +22,4 @@ logs/
 .gcp/
 *.json.key
 service-account*.json
-streaming/spark/jars/*.jar
-*.egg-info/
-*.egg-info/
 *.egg-info/

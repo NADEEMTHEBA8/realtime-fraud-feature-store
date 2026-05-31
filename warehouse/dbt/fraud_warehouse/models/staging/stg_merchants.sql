@@ -1,25 +1,12 @@
 /*
-    stg_merchants.sql — Silver Layer: Merchant Reference Data
+    Silver staging for the merchant dimension (CDC source: public.merchants).
 
-    Source: public.merchants (captured via Debezium CDC)
-
-    In production, this table lives in a separate operational database.
-    Debezium streams changes to Kafka, and a sink connector or Spark job
-    loads them into the warehouse. For local dev, we read directly from
-    Postgres since it's the same instance.
-
-    Interview talking point:
-        "Merchant reference data is captured via CDC using Debezium.
-        When a merchant's risk_tier changes from 'low' to 'critical',
-        the change flows through Kafka to the warehouse in sub-second
-        latency. My staging model cleans and types this data for
-        downstream joins with the transaction fact table."
+    dbt reads public.merchants directly from Postgres. Debezium captures the
+    same table to Kafka CDC topics (observable in Kafka UI); this prototype
+    does not run a sink back into the warehouse.
 */
 
-{{ config(
-    materialized='view',
-    schema='silver'
-) }}
+{{ config(materialized='view') }}
 
 with source as (
 
@@ -32,13 +19,13 @@ staged as (
     select
         merchant_id,
         merchant_name,
-        category                as merchant_category,
-        risk_tier               as merchant_risk_tier,
+        category        as merchant_category,
+        risk_tier       as merchant_risk_tier,
         avg_ticket_size,
         is_active,
         onboarded_at,
         updated_at,
-        current_timestamp       as _dbt_loaded_at
+        current_timestamp as _dbt_loaded_at
 
     from source
 

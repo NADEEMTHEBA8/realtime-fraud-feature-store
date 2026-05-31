@@ -1,15 +1,6 @@
 /*
-    test_not_future_timestamp.sql — Custom Generic Test
-
-    Asserts that a timestamp column contains no future dates.
-    A transaction with event_timestamp in the future indicates
-    either clock skew or data corruption.
-
-    Why this matters in fintech:
-        Future-dated transactions can bypass time-based fraud rules
-        (e.g., "flag transactions outside business hours"). They also
-        break rolling window features — a future transaction would
-        dominate the "latest" calculation.
+    Generic test: timestamp column has no future-dated values.
+    A 1-hour grace window absorbs minor clock skew between services.
 */
 
 {% test not_future_timestamp(model, column_name) %}

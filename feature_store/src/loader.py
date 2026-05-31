@@ -1,31 +1,21 @@
 """
-Feature Loader: Postgres Gold Layer → Redis
+Feature loader: Postgres gold layer -> Redis.
 
-What this does:
-    Reads pre-computed fraud features from the gold layer in Postgres
-    and loads them into Redis as JSON hashes for sub-millisecond serving.
+Materializes gold_user_fraud_features and gold_daily_merchant_stats into
+Redis keys for the serving API. Run standalone (`make features`) or as the
+final task of the Airflow DAG.
 
-Why Redis?
-    A fraud scoring API needs to respond in <10ms. Postgres can do 5-20ms
-    for a simple key lookup, but Redis does it in <1ms. When you're scoring
-    thousands of transactions per second, those milliseconds matter.
-
-Redis key design:
-    user:features:{user_id} → JSON hash of all 25+ features
-    merchant:stats:{merchant_id}:{date} → JSON hash of daily merchant stats
-    _meta:features:last_loaded → timestamp of last load (for freshness checks)
-
-Interview talking point:
-    "I built a feature loader that materializes the dbt gold layer into Redis
-    for sub-millisecond serving. The same features used for batch model training
-    in Postgres are served in real-time from Redis, ensuring consistency between
-    training and scoring — avoiding the training-serving skew problem."
+Keys:
+    user:features:{user_id}                JSON, all user features, 24h TTL
+    merchant:stats:{merchant_id}:{date}    JSON, daily merchant stats, 7d TTL
+    merchant:latest:{merchant_id}          JSON, most recent day, 24h TTL
+    _meta:features:last_loaded             load metadata for /health
 """
 
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import psycopg2
@@ -33,23 +23,27 @@ import redis
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("feature_loader")
 
+USER_TTL_SECONDS = 86400      # 24h
+MERCHANT_TTL_SECONDS = 604800  # 7d
+PIPELINE_BATCH = 100
 
-class DecimalEncoder(json.JSONEncoder):
-    """Handle Decimal types from Postgres NUMERIC columns."""
+
+class _JsonEncoder(json.JSONEncoder):
+    """Postgres NUMERIC -> float, date/datetime -> ISO string."""
+
     def default(self, obj):
         if isinstance(obj, Decimal):
             return float(obj)
-        if isinstance(obj, datetime):
+        if isinstance(obj, (datetime, date)):
             return obj.isoformat()
         return super().default(obj)
 
 
 def get_postgres_connection():
-    """Connect to Postgres using the same credentials as dbt."""
     return psycopg2.connect(
         host=os.getenv("PG_HOST", "127.0.0.1"),
         port=int(os.getenv("PG_PORT", "5432")),
@@ -60,7 +54,6 @@ def get_postgres_connection():
 
 
 def get_redis_connection():
-    """Connect to Redis."""
     return redis.Redis(
         host=os.getenv("REDIS_HOST", "127.0.0.1"),
         port=int(os.getenv("REDIS_PORT", "6379")),
@@ -69,120 +62,68 @@ def get_redis_connection():
     )
 
 
-def load_user_features(pg_conn, redis_conn):
-    """
-    Load user fraud features from Postgres gold layer into Redis.
-
-    Each user gets a Redis key: user:features:{user_id}
-    Value is a JSON string of all 25+ features.
-
-    Why JSON string (not Redis HSET)?
-        A single GET is faster than HGETALL for serving all features
-        at once. The fraud scoring API needs ALL features for a user
-        in one call, so atomic GET of a JSON blob is optimal.
-    """
-    logger.info("Loading user fraud features...")
-
+def load_user_features(pg_conn, redis_conn) -> int:
+    """Load gold_user_fraud_features into user:features:{user_id} keys."""
     cur = pg_conn.cursor()
-    cur.execute("""
-        SELECT * FROM silver_gold.gold_user_fraud_features
-    """)
+    cur.execute("SELECT * FROM silver_gold.gold_user_fraud_features")
+    columns = [d[0] for d in cur.description]
 
-    columns = [desc[0] for desc in cur.description]
+    pipe = redis_conn.pipeline()
     loaded = 0
-    pipeline = redis_conn.pipeline()
-
     for row in cur:
         record = dict(zip(columns, row))
-        user_id = record["user_id"]
-        key = f"user:features:{user_id}"
-
-        # Serialize to JSON (handles Decimal and datetime)
-        value = json.dumps(record, cls=DecimalEncoder)
-
-        # Use pipeline for batch writes (much faster than individual SETs)
-        pipeline.set(key, value)
-
-        # Set TTL of 24 hours — features should be refreshed daily
-        # If the loader doesn't run, stale features expire rather than
-        # serving outdated data silently
-        pipeline.expire(key, 86400)
-
+        key = f"user:features:{record['user_id']}"
+        pipe.set(key, json.dumps(record, cls=_JsonEncoder))
+        pipe.expire(key, USER_TTL_SECONDS)
         loaded += 1
-
-        # Execute pipeline in batches of 100
-        if loaded % 100 == 0:
-            pipeline.execute()
-            logger.info(f"  Loaded {loaded} users...")
-
-    # Execute remaining commands in pipeline
-    pipeline.execute()
+        if loaded % PIPELINE_BATCH == 0:
+            pipe.execute()
+    pipe.execute()
     cur.close()
 
-    logger.info(f"Loaded {loaded} user feature vectors into Redis")
+    logger.info("Loaded %d user feature vectors", loaded)
     return loaded
 
 
-def load_merchant_stats(pg_conn, redis_conn):
-    """
-    Load daily merchant stats from Postgres gold layer into Redis.
-
-    Each merchant-date combo gets a key: merchant:stats:{merchant_id}:{date}
-    Also stores latest stats: merchant:latest:{merchant_id}
-    """
-    logger.info("Loading merchant daily stats...")
-
+def load_merchant_stats(pg_conn, redis_conn) -> int:
+    """Load gold_daily_merchant_stats; also write a per-merchant latest key."""
     cur = pg_conn.cursor()
-    cur.execute("""
-        SELECT * FROM silver_gold.gold_daily_merchant_stats
-    """)
+    cur.execute("SELECT * FROM silver_gold.gold_daily_merchant_stats")
+    columns = [d[0] for d in cur.description]
 
-    columns = [desc[0] for desc in cur.description]
+    pipe = redis_conn.pipeline()
+    latest: dict[str, tuple[str, str]] = {}
     loaded = 0
-    pipeline = redis_conn.pipeline()
-
-    # Track latest date per merchant for the "latest" key
-    merchant_latest = {}
-
     for row in cur:
         record = dict(zip(columns, row))
         merchant_id = record["merchant_id"]
         event_date = str(record["event_date"])
+        value = json.dumps(record, cls=_JsonEncoder)
+
         key = f"merchant:stats:{merchant_id}:{event_date}"
+        pipe.set(key, value)
+        pipe.expire(key, MERCHANT_TTL_SECONDS)
 
-        value = json.dumps(record, cls=DecimalEncoder)
-        pipeline.set(key, value)
-        pipeline.expire(key, 604800)  # 7-day TTL for historical stats
-
-        # Track the latest date for each merchant
-        if merchant_id not in merchant_latest or event_date > merchant_latest[merchant_id][0]:
-            merchant_latest[merchant_id] = (event_date, value)
+        if merchant_id not in latest or event_date > latest[merchant_id][0]:
+            latest[merchant_id] = (event_date, value)
 
         loaded += 1
+        if loaded % PIPELINE_BATCH == 0:
+            pipe.execute()
 
-        if loaded % 100 == 0:
-            pipeline.execute()
-
-    # Store "latest" key for each merchant (most recent day's stats)
-    for merchant_id, (date, value) in merchant_latest.items():
-        pipeline.set(f"merchant:latest:{merchant_id}", value)
-        pipeline.expire(f"merchant:latest:{merchant_id}", 86400)
-
-    pipeline.execute()
+    for merchant_id, (_, value) in latest.items():
+        key = f"merchant:latest:{merchant_id}"
+        pipe.set(key, value)
+        pipe.expire(key, USER_TTL_SECONDS)
+    pipe.execute()
     cur.close()
 
-    logger.info(f"Loaded {loaded} merchant stat records into Redis")
+    logger.info("Loaded %d merchant stat records", loaded)
     return loaded
 
 
-def set_metadata(redis_conn, user_count, merchant_count):
-    """
-    Store metadata about the last load for freshness monitoring.
-
-    The API health endpoint checks this to verify features are fresh.
-    If _meta:features:last_loaded is older than 25 hours, the health
-    check returns degraded status.
-    """
+def set_metadata(redis_conn, user_count: int, merchant_count: int) -> None:
+    """Write load metadata; the API /health endpoint reads this for freshness."""
     meta = {
         "last_loaded_at": datetime.utcnow().isoformat(),
         "user_features_count": user_count,
@@ -190,29 +131,20 @@ def set_metadata(redis_conn, user_count, merchant_count):
         "loader_version": "1.0.0",
     }
     redis_conn.set("_meta:features:last_loaded", json.dumps(meta))
-    logger.info(f"Metadata updated: {meta}")
 
 
-def run():
-    """Main entry point for the feature loader."""
-    logger.info("=" * 60)
-    logger.info("FEATURE LOADER STARTING")
-    logger.info("=" * 60)
-
+def run() -> None:
     pg_conn = get_postgres_connection()
     redis_conn = get_redis_connection()
-
     try:
         user_count = load_user_features(pg_conn, redis_conn)
         merchant_count = load_merchant_stats(pg_conn, redis_conn)
         set_metadata(redis_conn, user_count, merchant_count)
-
-        logger.info("=" * 60)
-        logger.info("FEATURE LOADER COMPLETE")
-        logger.info(f"  Users:     {user_count}")
-        logger.info(f"  Merchants: {merchant_count}")
-        logger.info("=" * 60)
-
+        logger.info(
+            "Feature load complete: users=%d merchants=%d",
+            user_count,
+            merchant_count,
+        )
     finally:
         pg_conn.close()
         redis_conn.close()

@@ -1,0 +1,25 @@
+{
+  "name": "reference-postgres-source",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "fraud_admin",
+    "database.password": "changeme_local_only",
+    "database.dbname": "fraud_reference",
+
+    "topic.prefix": "fraud_cdc",
+    "schema.include.list": "public",
+    "table.include.list": "public.users,public.merchants",
+
+    "plugin.name": "pgoutput",
+    "slot.name": "fraud_cdc_slot",
+    "publication.name": "fraud_cdc_pub",
+
+    "tombstones.on.delete": "false",
+    "decimal.handling.mode": "string",
+    "snapshot.mode": "initial"
+  }
+}

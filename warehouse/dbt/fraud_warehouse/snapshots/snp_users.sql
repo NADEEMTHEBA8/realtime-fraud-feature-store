@@ -1,13 +1,6 @@
 /*
-    snp_users.sql — SCD Type 2 Snapshot for User Dimension
-
-    Tracks changes to user KYC level, risk score, blocked status, and city.
-
-    Why snapshot users?
-        A user's KYC level upgrade from 'basic' to 'full' changes their
-        transaction limits and risk profile. For fraud investigation,
-        you need to know: "Was this user KYC-verified at the time of
-        the disputed transaction?"
+    SCD Type 2 snapshot of the user dimension. Tracks KYC level, risk score,
+    blocked status and city changes over time using the updated_at column.
 */
 
 {% snapshot snp_users %}

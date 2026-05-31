@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
@@ -49,15 +48,8 @@ class _EventEncoder(json.JSONEncoder):
 # ---------------------------------------------------------------------------
 
 class TransactionKafkaProducer:
-    """
-    Thin wrapper around kafka-python's KafkaProducer.
-
-    Why a wrapper instead of using KafkaProducer directly?
-    1. Encapsulates serialization logic (Decimal, datetime handling)
-    2. Provides a clean interface for the generator to call
-    3. Adds delivery callbacks for observability
-    4. Makes it easy to swap Kafka for another broker later (single change point)
-    """
+    """Wraps kafka-python's KafkaProducer: event serialization, send/error
+    counts, and a small public interface for the generator."""
 
     def __init__(
         self,

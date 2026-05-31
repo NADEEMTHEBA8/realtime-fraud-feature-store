@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: stg_merchants
-    description: "Cleaned merchant reference data from CDC. One row per merchant."
+    description: "Cleaned merchant reference data. One row per merchant."
     columns:
       - name: merchant_id
         data_tests:
@@ -15,15 +15,16 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['grocery', 'electronics', 'fashion', 'food_delivery', 'travel', 'entertainment', 'utilities', 'healthcare', 'education', 'fuel']
+              values: ['GROCERY', 'ELECTRONICS', 'RESTAURANT', 'FUEL', 'TRAVEL',
+                       'ENTERTAINMENT', 'APPAREL', 'PHARMACY', 'EDUCATION', 'UTILITIES']
       - name: merchant_risk_tier
         data_tests:
           - not_null
           - accepted_values:
-              values: ['low', 'medium', 'high', 'critical']
+              values: ['LOW', 'MEDIUM', 'HIGH']
 
   - name: stg_users
-    description: "Cleaned user reference data from CDC. One row per user."
+    description: "Cleaned user reference data. One row per user."
     columns:
       - name: user_id
         data_tests:
@@ -33,7 +34,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['basic', 'intermediate', 'full']
+              values: ['VERIFIED', 'PENDING', 'REJECTED']
       - name: user_country
         data_tests:
           - not_null

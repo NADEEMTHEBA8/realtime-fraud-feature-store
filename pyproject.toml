@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "realtime-fraud-feature-store"
 version = "0.1.0"
-description = "Production-grade fintech transaction pipeline with real-time fraud feature serving"
+description = "Local event-driven fraud analytics prototype with a Redis-backed feature store"
 authors = [
     {name = "Nadeem Theba", email = "nadeemtheba8@gmail.com"}
 ]
@@ -16,7 +16,11 @@ dependencies = [
     "faker>=24.0.0",
     "kafka-python>=2.0.2",
     "python-dotenv>=1.0.0",
-    "structlog>=24.1.0",
+    "pyspark>=3.5.0,<3.6.0",
+    "psycopg2-binary>=2.9.0",
+    "redis>=5.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +31,12 @@ dev = [
     "mypy>=1.8.0",
 ]
 
+# dbt-postgres is installed separately (CLI tool), pinned to 1.8.x to match
+# the Airflow container: pip install dbt-postgres==1.8.2
+
 [tool.setuptools]
+# Code is run as `python -m <package>` from the repo root; no importable
+# top-level package is installed.
 packages = []
 
 [tool.ruff]

@@ -1,101 +1,56 @@
 """
-Spark session factory with Kafka + MinIO (S3A) configuration.
+SparkSession factory for the bronze ingestion job (Kafka source, MinIO S3A sink).
 
-Why this file exists:
-    Every Spark job needs a SparkSession. Rather than repeat config in every job,
-    we centralise it here. This is the pattern used in production Spark codebases.
-
-Key configs explained:
-    - spark.jars: Points to the 6 JARs we downloaded (Kafka + S3A connectors)
-    - spark.hadoop.fs.s3a.*: Tells Spark to treat "s3a://" paths as MinIO, not real AWS S3
-    - spark.sql.streaming.schemaInference: Disabled — we always define schemas explicitly
-      (production rule: never let Spark guess your schema)
+Connector JARs are resolved from Maven at submit time via spark.jars.packages.
+Pinned to Spark 3.5.x / Hadoop 3.3.4 (the Hadoop version Spark 3.5 bundles);
+Ivy pulls the transitive deps (kafka-clients, aws-java-sdk-bundle, etc.).
 """
 
 import os
-from pathlib import Path
+
 from pyspark.sql import SparkSession
 
-
-def get_jar_paths() -> str:
-    """
-    Build comma-separated string of all JAR paths in streaming/spark/jars/.
-
-    Why not use --packages flag?
-        --packages downloads from Maven at runtime. That's flaky in CI and
-        behind corporate proxies. Pre-downloaded JARs are deterministic.
-    """
-    jar_dir = Path(__file__).parent.parent / "jars"
-    jars = list(jar_dir.glob("*.jar"))
-
-    if not jars:
-        raise FileNotFoundError(
-            f"No JARs found in {jar_dir}. "
-            f"Run the curl commands from Day 4 Step 2 to download them."
-        )
-
-    return ",".join(str(j) for j in jars)
+SPARK_PACKAGES = ",".join([
+    "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0",
+    "org.apache.hadoop:hadoop-aws:3.3.4",
+])
 
 
 def create_spark_session(app_name: str = "fraud-feature-store") -> SparkSession:
-    """
-    Create a SparkSession configured for local dev with Kafka + MinIO.
+    """Local SparkSession wired for the Kafka source and the MinIO S3A sink.
 
-    Args:
-        app_name: Shows up in Spark UI (localhost:4040 while job runs).
-
-    Returns:
-        Configured SparkSession.
+    MinIO credentials default to the docker-compose defaults; override via the
+    same MINIO_* variables used by docker-compose (see .env.example).
     """
-    # Read MinIO credentials from environment (same .env as docker-compose)
     minio_endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-    minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-    minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
-
-    jar_paths = get_jar_paths()
+    minio_user = os.getenv("MINIO_ROOT_USER", "minioadmin")
+    minio_password = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
 
     spark = (
         SparkSession.builder
         .appName(app_name)
-
-        # ---------- Resource limits ----------
-        # Your MacBook has 16GB. Docker uses ~4GB. We give Spark 2GB max.
-        # In production this would be 10-100x larger.
         .config("spark.driver.memory", "2g")
+        .config("spark.jars.packages", SPARK_PACKAGES)
 
-        # ---------- JARs ----------
-        .config("spark.jars", jar_paths)
-
-        # ---------- MinIO / S3A configuration ----------
-        # These tell Hadoop's S3A connector to talk to MinIO instead of real AWS
+        # S3A -> MinIO. Path-style access because MinIO does not serve the
+        # virtual-host bucket addressing that real S3 uses.
         .config("spark.hadoop.fs.s3a.endpoint", minio_endpoint)
-        .config("spark.hadoop.fs.s3a.access.key", minio_access_key)
-        .config("spark.hadoop.fs.s3a.secret.key", minio_secret_key)
-
-        # path.style.access = true: Use http://host/bucket/key format
-        # (MinIO doesn't support the virtual-host style that real S3 uses)
+        .config("spark.hadoop.fs.s3a.access.key", minio_user)
+        .config("spark.hadoop.fs.s3a.secret.key", minio_password)
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
-
-        # Use the simple file system (no checksums, no version markers)
-        # S3AFileSystem is the connector class in hadoop-aws JAR
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-
-        # Disable SSL since MinIO runs on plain HTTP locally
+        .config(
+            "spark.hadoop.fs.s3a.aws.credentials.provider",
+            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+        )
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
 
-        # ---------- Streaming safety ----------
-        # Never infer schema in streaming — always define it explicitly
+        # Streaming jobs always use an explicit schema; never infer.
         .config("spark.sql.streaming.schemaInference", "false")
-
-        # ---------- Parquet settings ----------
-        # Write timestamps as INT96 for BigQuery compatibility later
         .config("spark.sql.parquet.outputTimestampType", "TIMESTAMP_MICROS")
 
-        .master("local[2]")  # 2 cores: 1 for reading Kafka, 1 for writing
+        .master("local[2]")
         .getOrCreate()
     )
-
-    # Reduce Spark's default logging noise (it's VERY verbose)
     spark.sparkContext.setLogLevel("WARN")
-
     return spark

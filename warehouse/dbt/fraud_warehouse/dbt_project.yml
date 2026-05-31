@@ -14,8 +14,10 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+# Staging models land in the profile's target schema (silver). Gold and
+# data_quality models set their own schema in-model, producing silver_gold
+# and silver_data_quality via dbt's default schema naming.
 models:
   fraud_warehouse:
     staging:
       +materialized: view
-      +schema: silver

@@ -1,16 +1,7 @@
 /*
-    dq_pipeline_health.sql — Data Quality: Pipeline Health Summary
-
-    A single-row summary of pipeline health metrics that an ops
-    dashboard would consume. Designed to be queried by Grafana,
-    Metabase, or any BI tool.
-
-    Metrics include:
-        - Record counts at each layer
-        - Reconciliation status
-        - Data freshness (age of latest record)
-        - Enrichment coverage rates
-        - Anomaly counts from fraud features
+    Single-row pipeline health summary for an ops dashboard:
+    layer counts, reconciliation status, enrichment coverage, and
+    fraud/merchant anomaly counts.
 */
 
 {{ config(

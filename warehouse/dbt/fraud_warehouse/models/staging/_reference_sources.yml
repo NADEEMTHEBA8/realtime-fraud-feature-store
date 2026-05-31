@@ -2,45 +2,49 @@ version: 2
 
 sources:
   - name: reference
-    description: "Reference/dimension tables from the operational database, kept in sync via Debezium CDC."
+    description: "Dimension tables in Postgres (public schema). Captured to Kafka by Debezium CDC; dbt reads them directly."
     schema: public
     tables:
       - name: merchants
-        description: "Merchant master data — name, category, risk tier, ticket size. Changes streamed via CDC."
+        description: "Merchant master data. Seeded by seed_reference.py, then mutable."
         columns:
           - name: merchant_id
             description: "Primary key (format: merch_XXXXXXXXXX)"
           - name: merchant_name
             description: "Display name of the merchant"
           - name: category
-            description: "Business category (grocery, electronics, fashion, etc)"
+            description: "Business category (see profiles.MERCHANT_CATEGORIES)"
           - name: risk_tier
-            description: "Risk classification: low, medium, high, critical"
+            description: "Risk classification: LOW, MEDIUM, or HIGH"
           - name: avg_ticket_size
             description: "Average transaction amount for this merchant"
           - name: is_active
-            description: "Whether merchant is currently active"
+            description: "Whether the merchant is currently active"
           - name: onboarded_at
-            description: "When merchant was first registered"
+            description: "When the merchant was first registered"
           - name: updated_at
-            description: "Last modification timestamp"
+            description: "Last modification timestamp (drives SCD2 snapshot)"
 
       - name: users
-        description: "User master data — KYC level, risk score, location. Changes streamed via CDC."
+        description: "User master data. Seeded by seed_reference.py, then mutable."
         columns:
           - name: user_id
             description: "Primary key (format: user_XXXXXXXXXX)"
           - name: email_hash
-            description: "SHA-256 hash of user email (PII protected)"
+            description: "SHA-256 hash of the user email"
           - name: phone_hash
-            description: "SHA-256 hash of user phone (PII protected)"
+            description: "SHA-256 hash of the user phone number"
           - name: city
             description: "User city"
           - name: country
             description: "ISO 3166-1 alpha-2 country code"
           - name: kyc_level
-            description: "KYC verification level: basic, intermediate, full"
+            description: "KYC status: VERIFIED, PENDING, or REJECTED"
           - name: risk_score
-            description: "Risk score between 0 (safe) and 1 (risky)"
+            description: "Risk score between 0.00 (safe) and 1.00 (risky)"
           - name: is_blocked
-            description: "Whether user account is blocked"
+            description: "Whether the user account is blocked"
+          - name: created_at
+            description: "Account creation timestamp"
+          - name: updated_at
+            description: "Last modification timestamp (drives SCD2 snapshot)"

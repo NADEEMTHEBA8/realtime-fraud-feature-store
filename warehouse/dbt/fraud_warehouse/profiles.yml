@@ -1,12 +1,14 @@
+# Local (host) dbt profile. The Airflow container uses its own copy at
+# orchestration/airflow/dags/profiles.yml (host: postgres instead of localhost).
 fraud_warehouse:
   target: dev
   outputs:
     dev:
       type: postgres
-      host: postgres
+      host: localhost
       port: 5432
       user: fraud_admin
       password: changeme_local_only
       dbname: fraud_reference
       schema: silver
-      threads: 2
+      threads: 4

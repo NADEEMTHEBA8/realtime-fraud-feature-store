@@ -1,28 +1,32 @@
-.PHONY: help up down logs ps clean install fmt lint test gen bronze load dbt dbt-test dbt-snapshot features api health
+.PHONY: help up down logs ps clean install fmt lint test \
+        seed connector gen bronze load dbt dbt-test dbt-snapshot features api health recon
 
 help:
 	@echo "infra:"
-	@echo "  up        - start all docker services"
-	@echo "  down      - stop all docker services"
-	@echo "  ps        - show running services"
-	@echo "  logs      - tail logs (use SVC=kafka to filter)"
-	@echo "  clean     - stop services and remove volumes"
+	@echo "  up         - start all docker services"
+	@echo "  down       - stop all docker services"
+	@echo "  ps         - show running services"
+	@echo "  logs       - tail logs (use SVC=kafka to filter)"
+	@echo "  clean      - stop services and remove volumes"
+	@echo ""
+	@echo "setup (run once after 'up'):"
+	@echo "  seed       - populate Postgres reference tables (users, merchants)"
+	@echo "  connector  - register the Debezium Postgres CDC connector"
 	@echo ""
 	@echo "pipeline:"
-	@echo "  gen       - run transaction generator (ctrl+c to stop)"
-	@echo "  bronze    - run spark bronze ingestion (ctrl+c to stop)"
-	@echo "  load      - load bronze parquet data into postgres"
-	@echo "  dbt       - run dbt snapshot + run + test"
-	@echo "  dbt-test  - run dbt tests only"
-	@echo "  features  - load features from postgres to redis"
-	@echo "  api       - start the feature serving api"
+	@echo "  gen        - run transaction generator (ctrl+c to stop)"
+	@echo "  bronze     - run spark bronze ingestion (ctrl+c to stop)"
+	@echo "  load       - load bronze parquet into postgres"
+	@echo "  dbt        - run dbt snapshot + run + test"
+	@echo "  dbt-test   - run dbt tests only"
+	@echo "  features   - load features from postgres to redis"
+	@echo "  api        - start the feature serving api"
 	@echo ""
 	@echo "checks:"
-	@echo "  health    - check api health endpoint"
-	@echo "  recon     - check reconciliation status"
-	@echo "  test      - run python unit tests"
-	@echo "  lint      - lint with ruff"
-	@echo "  fmt       - format with ruff"
+	@echo "  health     - check api health endpoint"
+	@echo "  recon      - check reconciliation status"
+	@echo "  test       - run python unit tests"
+	@echo "  lint / fmt - ruff lint / format"
 
 # --- infra ---
 
@@ -31,6 +35,7 @@ up:
 	@echo "Kafka UI:  http://localhost:8080"
 	@echo "MinIO UI:  http://localhost:9001"
 	@echo "Airflow:   http://localhost:8081"
+	@echo "Next: make seed && make connector"
 
 down:
 	docker compose down
@@ -48,6 +53,14 @@ endif
 clean:
 	docker compose down -v
 	@echo "all containers and volumes removed."
+
+# --- setup ---
+
+seed:
+	python -m ingestion.transaction_generator.src.seed_reference
+
+connector:
+	./infra/debezium/register-connector.sh
 
 # --- pipeline ---
 
