@@ -14,9 +14,9 @@ streaming, modeling, feature serving, orchestration — not the model itself.
 ```text
 transaction generator ──▶ Kafka (transactions.raw)
                             │
-                   Spark Structured Streaming
+               Databricks (Spark Structured Streaming)
                             │
-                   MinIO  s3a://bronze/  (partitioned Parquet)
+               Delta Lake (Lakehouse)  s3a://bronze/
                             │
                    load_bronze_to_postgres.py
                             │
@@ -44,8 +44,8 @@ Orchestration:
 ## Stack
 
 - **Kafka** (KRaft mode, no Zookeeper) — event transport
-- **PySpark** — Structured Streaming bronze ingestion
-- **MinIO** — S3-compatible object storage for Parquet
+- **Databricks / PySpark** — Structured Streaming bronze ingestion. *Migrated processing engine to Databricks utilizing Delta Lake for ACID transaction support.*
+- **Delta Lake (MinIO)** — S3-compatible object storage Lakehouse architecture
 - **PostgreSQL** — warehouse (dbt-postgres adapter)
 - **dbt** — transformations, tests, SCD2 snapshots
 - **Debezium** — CDC from the Postgres WAL

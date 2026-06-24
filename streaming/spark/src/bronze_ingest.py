@@ -1,5 +1,5 @@
 """
-Bronze ingestion: Kafka transactions.raw to MinIO Parquet.
+Bronze ingestion: Kafka transactions.raw to Delta Lake.
 """
 
 import logging
@@ -106,11 +106,11 @@ def mask_pii(df: DataFrame) -> DataFrame:
 
 
 def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str):
-    """Append valid records as date/hour-partitioned Parquet on MinIO."""
+    """Append valid records as date/hour-partitioned Delta Lake tables on MinIO."""
     logger.info("Bronze sink: %s", output)
     return (
         df.writeStream
-        .format("parquet")
+        .format("delta")
         .outputMode("append")
         # TODO: S3 Small File Problem - Triggering micro-batches every 30 seconds creates 
         # thousands of tiny Parquet files per hour partition under low volume. This will 
@@ -160,6 +160,13 @@ def run() -> None:
 
         write_bronze_to_minio(valid_df, bronze_checkpoint, bronze_output)
         write_dead_letters(invalid_df, dead_letter_checkpoint, bootstrap)
+
+        # Create a Databricks-style SQL table over your Delta files
+        spark.sql(f"""
+            CREATE TABLE IF NOT EXISTS fraud_transactions 
+            USING DELTA 
+            LOCATION '{bronze_output}'
+        """)
 
         logger.info("Streams started. Ctrl+C to stop.")
         spark.streams.awaitAnyTermination()
