@@ -1,20 +1,11 @@
 """
 Transaction generator runner.
-
-Builds the user/merchant profiles, then publishes synthetic transaction
-events to Kafka at a fixed rate until interrupted.
-
-The profiles are regenerated from the same ProfileFactory seed used by
-seed_reference.py, so every user_id / merchant_id emitted here exists as a
-row in public.users / public.merchants. Seed the reference tables first:
-    python -m ingestion.transaction_generator.src.seed_reference
-
-Usage:
-    python -m ingestion.transaction_generator.src.run   (Ctrl+C to stop)
+Publishes synthetic transaction events to Kafka.
 """
 
 from __future__ import annotations
 
+import argparse
 import time
 
 from ingestion.transaction_generator.src.generator import TransactionGenerator
@@ -26,13 +17,21 @@ from ingestion.transaction_generator.src.seed_reference import (
     SEED,
 )
 
-EVENTS_PER_SECOND = 10
 KAFKA_BOOTSTRAP = "localhost:9092"
 KAFKA_TOPIC = "transactions.raw"
 PRINT_EVERY = 50
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Transaction generator runner.")
+    parser.add_argument(
+        "--rate", type=int, default=10, help="Target events per second (default: 10)"
+    )
+    parser.add_argument(
+        "--firehose", action="store_true", help="Aggressively batch events without sleep"
+    )
+    args = parser.parse_args()
+
     print(f"Generating {NUM_USERS} users / {NUM_MERCHANTS} merchants (seed={SEED})")
     factory = ProfileFactory(seed=SEED)
     users = factory.make_users(NUM_USERS)
@@ -43,9 +42,13 @@ def main() -> None:
         bootstrap_servers=KAFKA_BOOTSTRAP,
         topic=KAFKA_TOPIC,
     )
-    print(f"Publishing to {KAFKA_TOPIC} at ~{EVENTS_PER_SECOND}/s (Ctrl+C to stop)")
+    
+    if args.firehose:
+        print(f"Publishing to {KAFKA_TOPIC} in FIREHOSE mode (Ctrl+C to stop)")
+    else:
+        print(f"Publishing to {KAFKA_TOPIC} at ~{args.rate}/s (Ctrl+C to stop)")
 
-    delay = 1.0 / EVENTS_PER_SECOND
+    delay = 1.0 / args.rate if args.rate > 0 else 0
     total_sent = 0
     start_time = time.time()
 
@@ -57,20 +60,21 @@ def main() -> None:
 
             if total_sent % PRINT_EVERY == 0:
                 elapsed = time.time() - start_time
-                rate = total_sent / elapsed if elapsed > 0 else 0
-                print(f"  sent={total_sent:>6}  rate={rate:.1f}/s")
+                actual_rate = total_sent / elapsed if elapsed > 0 else 0
+                print(f"  sent={total_sent:>6}  rate={actual_rate:.1f}/s")
                 producer.flush()
 
-            time.sleep(delay)
+            if not args.firehose and delay > 0:
+                time.sleep(delay)
 
     except KeyboardInterrupt:
         producer.flush()
         elapsed = time.time() - start_time
         stats = producer.stats
-        rate = stats["sent"] / elapsed if elapsed > 0 else 0
+        actual_rate = stats["sent"] / elapsed if elapsed > 0 else 0
         print(
             f"\nStopped. sent={stats['sent']} errors={stats['errors']} "
-            f"duration={elapsed:.1f}s avg_rate={rate:.1f}/s"
+            f"duration={elapsed:.1f}s avg_rate={actual_rate:.1f}/s"
         )
         producer.close()
 

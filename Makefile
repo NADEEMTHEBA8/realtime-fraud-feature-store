@@ -1,8 +1,9 @@
-.PHONY: help up down logs ps clean install fmt lint test \
+.PHONY: help up down logs ps clean install setup fmt lint test \
         seed connector gen bronze load dbt dbt-test dbt-snapshot features api health recon
 
 help:
 	@echo "infra:"
+	@echo "  setup      - install python deps + dbt (run inside your 3.11 venv)"
 	@echo "  up         - start all docker services"
 	@echo "  down       - stop all docker services"
 	@echo "  ps         - show running services"
@@ -99,6 +100,15 @@ recon:
 
 install:
 	pip install -e ".[dev]"
+
+setup:
+	@python -c "import sys; v=sys.version_info; \
+	exit(0) if (v.major,v.minor)==(3,11) else (print('ERROR: need Python 3.11, found %d.%d. Activate your venv: source .venv/bin/activate' % (v.major,v.minor)) or exit(1))"
+	pip install -e ".[dev]"
+	pip install "dbt-core==1.8.*" "dbt-postgres==1.8.2"
+	@echo ""
+	@echo "Setup complete. Verify with: dbt --version"
+	@echo "Next: make up"
 
 fmt:
 	ruff format .

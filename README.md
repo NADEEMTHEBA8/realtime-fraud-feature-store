@@ -11,7 +11,7 @@ streaming, modeling, feature serving, orchestration — not the model itself.
 
 ## Architecture
 
-```
+```text
 transaction generator ──▶ Kafka (transactions.raw)
                             │
                    Spark Structured Streaming
@@ -34,6 +34,13 @@ Orchestration:
    Airflow DAG runs dbt snapshot ──▶ run ──▶ test ──▶ feature load
 ```
 
+## Enterprise Features
+
+- **Cloud-Agnostic Design**: Built locally with Docker Compose, but includes AWS Terraform modules (`infra/terraform-aws-freetier`) to provision S3, RDS PostgreSQL, ElastiCache Redis, and EC2 with zero-cost free tier components.
+- **Debezium CDC**: Zero-downtime database extraction capturing real-time changes to user and merchant profiles directly from the Postgres WAL.
+- **Data Governance**: PII is masked at the edge. Spark structured streaming jobs apply SHA-256 hashing to `device_id` and `ip_address` before data lands in the bronze data lake. dbt applies strict data-quality assertions, including full reconciliation tests between bronze and silver layers.
+- **High Volume Ingestion**: Supports streaming ingestion at scale via a dedicated Firehose mode (`--firehose` flag). Also includes PyArrow-backed local partitioned Parquet backfilling for generating historical datasets (e.g., millions of records) directly to storage.
+
 ## Stack
 
 - **Kafka** (KRaft mode, no Zookeeper) — event transport
@@ -47,6 +54,7 @@ Orchestration:
 - **Airflow** — batch orchestration (standalone, SequentialExecutor)
 - **Docker Compose** — runs the stack (7 long-running services plus a
   one-shot MinIO bucket initializer)
+- **Terraform** — Infrastructure as Code for AWS deployment
 
 Postgres stands in for a cloud warehouse. The dbt SQL is standard enough
 that swapping the adapter (e.g. to BigQuery) is mostly a profile change,
@@ -78,13 +86,14 @@ the warehouse is the natural next step but is out of scope here.
 ## Project layout
 
 ```
-ingestion/transaction_generator/src/   transaction generator + reference seeder
-streaming/spark/src/                   Kafka -> MinIO bronze ingestion
+ingestion/transaction_generator/src/   transaction generator + historical backfill
+streaming/spark/src/                   Kafka -> MinIO bronze ingestion + PII masking
 warehouse/dbt/fraud_warehouse/         dbt models, snapshots, tests, macros
 feature_store/src/                     Postgres->Redis loader + FastAPI app
 orchestration/airflow/dags/            batch pipeline DAG + dbt profile
 infra/postgres/init/                   reference table DDL + CDC publication
 infra/debezium/                        Debezium connector config + register script
+infra/terraform-aws-freetier/          Terraform AWS architecture for cloud deployment
 load_bronze_to_postgres.py             bridges MinIO Parquet into Postgres
 ```
 
@@ -106,15 +115,20 @@ make connector          # register the Debezium CDC connector
 
 # 3. ingestion (run, then ctrl+c after ~30s)
 make gen                # generate events into Kafka
+# Or generate events aggressively:
+python -m ingestion.transaction_generator.src.run --firehose
 
 # 4. streaming (run, then ctrl+c once the backlog is drained)
 make bronze             # Spark: Kafka -> MinIO bronze Parquet
 
-# 5. warehouse
+# 5. historical backfill (bypasses Kafka)
+python -m ingestion.transaction_generator.src.backfill --rows 1000000
+
+# 6. warehouse
 make load               # MinIO Parquet -> Postgres bronze.transactions
 make dbt                # dbt snapshot + run + test
 
-# 6. serving
+# 7. serving
 make features           # Postgres gold -> Redis
 make api                # FastAPI on :8000
 ```
@@ -150,8 +164,9 @@ previous features stay in Redis until their TTL expires.
   reads, which Redis gives consistently and a SQL query against the
   warehouse does not.
 
-## Limitations
+## Architectural Trade-offs & Known Limitations
 
+- **Kafka Partitioning Bottleneck**: The `transactions.raw` topic is currently configured with a single partition. This was a deliberate choice for this local prototype to guarantee strict global ordering, but it severely limits consumer parallelism and prevents horizontal scaling of the Spark Structured Streaming job.
 - No auth or TLS — everything is plaintext, local only
 - Credentials are hardcoded local defaults
 - No monitoring, alerting, or CI/CD

@@ -1,20 +1,12 @@
 """
-Bronze ingestion: Kafka `transactions.raw` -> partitioned Parquet on MinIO.
-
-Valid records land in s3a://bronze/transactions/ partitioned by event date
-and hour. Records whose JSON fails to parse are routed to a Kafka
-dead-letter topic with the raw payload attached for inspection.
-
-Schema is explicit and matches schemas.TransactionEvent (the producer
-contract). Bronze keeps everything as strings; typing happens in the dbt
-staging layer.
+Bronze ingestion: Kafka transactions.raw to MinIO Parquet.
 """
 
 import logging
 import os
 
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, current_timestamp, from_json, hour, to_date
+from pyspark.sql.functions import col, current_timestamp, from_json, hour, sha2, to_date
 from pyspark.sql.types import StringType, StructField, StructType, TimestampType
 
 from streaming.spark.src.config import create_spark_session
@@ -104,6 +96,15 @@ def add_partition_columns(df: DataFrame) -> DataFrame:
     )
 
 
+def mask_pii(df: DataFrame) -> DataFrame:
+    """Mask PII fields using SHA-256 for data governance compliance."""
+    return (
+        df
+        .withColumn("device_id", sha2(col("device_id"), 256))
+        .withColumn("ip_address", sha2(col("ip_address"), 256))
+    )
+
+
 def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str):
     """Append valid records as date/hour-partitioned Parquet on MinIO."""
     logger.info("Bronze sink: %s", output)
@@ -111,6 +112,10 @@ def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str):
         df.writeStream
         .format("parquet")
         .outputMode("append")
+        # TODO: S3 Small File Problem - Triggering micro-batches every 30 seconds creates 
+        # thousands of tiny Parquet files per hour partition under low volume. This will 
+        # severely degrade downstream dbt load performance. We need to implement a compaction 
+        # job or dynamically tune the trigger interval.
         .trigger(processingTime="30 seconds")
         .option("checkpointLocation", checkpoint)
         .option("path", output)
@@ -150,6 +155,7 @@ def run() -> None:
     try:
         raw_df = build_kafka_source(spark, bootstrap, topic)
         valid_df, invalid_df = parse_and_validate(raw_df)
+        valid_df = mask_pii(valid_df)
         valid_df = add_partition_columns(valid_df)
 
         write_bronze_to_minio(valid_df, bronze_checkpoint, bronze_output)
