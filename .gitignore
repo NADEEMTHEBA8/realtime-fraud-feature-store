@@ -24,3 +24,30 @@ logs/
 service-account*.json
 *.egg-info/
 .demo_logs/
+
+# macOS
+._*
+.Trashes
+
+# Python additions
+build/
+dist/
+.tox/
+*.egg
+.mypy_cache/
+
+# Spark
+metastore_db/
+derby.log
+*.parquet
+
+# Airflow
+airflow-webserver.pid
+airflow.cfg
+airflow.db
+standalone_admin_password.txt
+
+# Environment vars / secrets
+.env.*
+secret*
+*.pem
