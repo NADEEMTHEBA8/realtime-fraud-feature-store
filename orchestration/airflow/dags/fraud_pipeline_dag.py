@@ -10,11 +10,11 @@ orchestrated here.
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
 
 default_args = {
     "owner": "data-engineering",
@@ -33,7 +33,7 @@ with DAG(
     default_args=default_args,
     description="dbt transformations and feature store load",
     schedule_interval="0 */4 * * *",
-    start_date=datetime(2026, 4, 1),
+    start_date=days_ago(1),
     catchup=False,
     tags=["fraud", "dbt", "feature-store"],
 ) as dag:
@@ -60,22 +60,14 @@ with DAG(
         bash_command=f"{DBT_CMD} test {DBT_FLAGS}",
     )
 
-    def load_features() -> None:
-        """Run the feature loader (Postgres gold -> Redis).
-
-        Reuses feature_store.src.loader so the batch path and the standalone
-        `make features` path stay identical. /opt/airflow holds the mounted
-        feature_store package; PG_*/REDIS_* env vars are set in compose.
-        """
-        if "/opt/airflow" not in sys.path:
-            sys.path.insert(0, "/opt/airflow")
-        from feature_store.src.loader import run as run_loader
-
-        run_loader()
-
-    load_features_to_redis = PythonOperator(
+    # Run the feature loader (Postgres gold -> Redis).
+    # Reuses feature_store.src.loader so the batch path and the standalone
+    # `make features` path stay identical.
+    # Note: In a production environment, this should ideally be run via 
+    # a KubernetesPodOperator to isolate dependencies, rather than BashOperator.
+    load_features_to_redis = BashOperator(
         task_id="load_features_to_redis",
-        python_callable=load_features,
+        bash_command="cd /opt/airflow && python -m feature_store.src.loader",
     )
 
     dbt_snapshot >> dbt_run >> dbt_test >> load_features_to_redis

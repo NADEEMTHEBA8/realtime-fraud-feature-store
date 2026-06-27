@@ -18,7 +18,6 @@ casted as (
         user_id,
         merchant_id,
 
-        -- NUMERIC, not FLOAT — exact decimal arithmetic for currency.
         cast(amount as NUMERIC(12, 2)) as amount,
         currency,
 
@@ -34,7 +33,6 @@ casted as (
         city,
         country,
 
-        -- Kafka lineage, carried through for debugging/replay.
         _kafka_topic,
         cast(_kafka_partition as INTEGER) as _kafka_partition,
         cast(_kafka_offset as BIGINT) as _kafka_offset,
@@ -52,8 +50,6 @@ casted as (
 
 validated as (
 
-    -- Records failing these checks are excluded from silver and counted by
-    -- recon_bronze_silver. A production system would quarantine them.
     select *
     from casted
     where transaction_id is not null

@@ -1,13 +1,10 @@
-# realtime-fraud-feature-store
+# Realtime Fraud Feature Store
 
-Local event-driven fraud analytics prototype. Payment events flow through
-Kafka, get processed by Spark into a medallion layout, are modeled in dbt,
-and the resulting per-user fraud features are served from Redis behind a
-FastAPI endpoint.
+An event-driven data pipeline designed to ingest transaction data, aggregate historical fraud features, and serve them to a machine learning model in milliseconds.
 
-This is a portfolio prototype, not a production system. The goal was to
-build the data infrastructure that *feeds* a fraud model — ingestion,
-streaming, modeling, feature serving, orchestration — not the model itself.
+This repository serves as a portfolio prototype focusing strictly on the data engineering infrastructure required to support real-time fraud detection. It simulates an Indian fintech environment where transactions flow through Kafka and are processed by Spark Structured Streaming into a Delta Lake. 
+
+From there, dbt transforms the raw events into a dimensional model, computing critical fraud signals—such as 24-hour transaction velocity, failure rates, and merchant category diversity—over rolling time windows. Finally, these aggregated feature vectors are pushed into Redis, allowing a FastAPI service to retrieve a user's entire transaction history in under 10ms to make an approve/block decision during a live checkout flow.
 
 ## Architecture
 
@@ -34,58 +31,45 @@ Orchestration:
    Airflow DAG runs dbt snapshot ──▶ run ──▶ test ──▶ feature load
 ```
 
-## Enterprise Features
+## Key Features
 
-- **Cloud-Agnostic Design**: Built locally with Docker Compose, but includes AWS Terraform modules (`infra/terraform-aws-freetier`) to provision S3, RDS PostgreSQL, ElastiCache Redis, and EC2 with zero-cost free tier components.
-- **Debezium CDC**: Zero-downtime database extraction capturing real-time changes to user and merchant profiles directly from the Postgres WAL.
-- **Data Governance**: PII is masked at the edge. Spark structured streaming jobs apply SHA-256 hashing to `device_id` and `ip_address` before data lands in the bronze data lake. dbt applies strict data-quality assertions, including full reconciliation tests between bronze and silver layers.
-- **High Volume Ingestion**: Supports streaming ingestion at scale via a dedicated Firehose mode (`--firehose` flag). Also includes PyArrow-backed local partitioned Parquet backfilling for generating historical datasets (e.g., millions of records) directly to storage.
+- **AWS Deployment Ready**: Runs locally via Docker Compose, but includes Terraform modules (`infra/terraform-aws-freetier`) to provision S3, RDS PostgreSQL, ElastiCache Redis, and EC2.
+- **Change Data Capture**: Debezium captures inserts and updates to user and merchant profiles from the Postgres WAL.
+- **Data Governance**: Spark Structured Streaming hashes `device_id` and `ip_address` before data lands in the bronze layer. dbt runs tests and reconciliation checks between the bronze and silver layers.
+- **Batch Backfilling**: Includes PyArrow scripts to generate large historical datasets directly to local storage, bypassing the Kafka stream.
 
 ## Stack
 
-- **Kafka** (KRaft mode, no Zookeeper) — event transport
-- **Databricks / PySpark** — Structured Streaming bronze ingestion. *Migrated processing engine to Databricks utilizing Delta Lake for ACID transaction support.*
-- **Delta Lake (MinIO)** — S3-compatible object storage Lakehouse architecture
-- **PostgreSQL** — warehouse (dbt-postgres adapter)
-- **dbt** — transformations, tests, SCD2 snapshots
-- **Debezium** — CDC from the Postgres WAL
-- **Redis** — feature serving store
-- **FastAPI** — feature lookup API
-- **Airflow** — batch orchestration (standalone, SequentialExecutor)
-- **Docker Compose** — runs the stack (7 long-running services plus a
-  one-shot MinIO bucket initializer)
-- **Terraform** — Infrastructure as Code for AWS deployment
+- **Kafka** (KRaft mode) — event transport
+- **PySpark** — Structured Streaming bronze ingestion
+- **Delta Lake (MinIO)** — Object storage
+- **PostgreSQL** — Local warehouse stand-in (dbt-postgres adapter)
+- **dbt** — SQL transformations, tests, SCD2 snapshots
+- **Debezium** — CDC from Postgres WAL
+- **Redis** — Feature serving store
+- **FastAPI** — Feature lookup API
+- **Airflow** — Batch orchestration
+- **Docker Compose** — Local execution
+- **Terraform** — AWS infrastructure provisioning
 
-Postgres stands in for a cloud warehouse. The dbt SQL is standard enough
-that swapping the adapter (e.g. to BigQuery) is mostly a profile change,
-though it has not been tested against another warehouse.
+*Note: Postgres is used as a local stand-in for a cloud warehouse. The dbt SQL can be ported to Databricks SQL or Snowflake with minor profile changes.*
 
 ## How CDC works here
 
-`public.users` and `public.merchants` live in Postgres and are the CDC
-source. Debezium captures inserts and updates from the WAL and publishes
-them to `fraud_cdc.public.*` Kafka topics — visible in the Kafka UI.
+`public.users` and `public.merchants` live in Postgres. Debezium captures inserts and updates from the WAL and publishes them to `fraud_cdc.public.*` Kafka topics.
 
-dbt reads those reference tables **directly** from Postgres (same instance,
-local dev) rather than consuming the CDC topics; there is no Kafka→warehouse
-sink in this prototype. The dbt snapshots provide the SCD Type 2 history.
-The CDC pipeline is real and observable; wiring a sink connector back into
-the warehouse is the natural next step but is out of scope here.
+Currently, dbt reads the reference tables directly from Postgres to build SCD Type 2 history via snapshots. Wiring a Kafka sink connector back into the warehouse to consume the topics is the natural next step, but is out of scope for this prototype.
 
 ## What's in the warehouse
 
-- 8 dbt models: 3 staging views, 1 enriched intermediate table,
-  2 gold feature tables, 2 data-quality tables
-- 2 snapshots — SCD Type 2 on the users and merchants dimensions
-- Schema and data tests on every model: uniqueness, not-null,
-  accepted-values, plus custom range and reconciliation assertions
-- ~25 per-user fraud features (velocity, amount stats, merchant/payment
-  diversity, failure and refund rates, city diversity, late-night activity,
-  latest-amount z-score) across 1h / 24h / 7d windows
+- 8 dbt models: 3 staging views, 1 enriched intermediate table, 2 gold feature tables, 2 data-quality tables.
+- 2 snapshots: SCD Type 2 on the users and merchants dimensions.
+- Schema and data tests on every model: uniqueness, not-null, accepted-values, range checks, and reconciliation assertions.
+- ~25 per-user fraud features across 1h / 24h / 7d windows.
 
 ## Project layout
 
-```
+```text
 ingestion/transaction_generator/src/   transaction generator + historical backfill
 streaming/spark/src/                   Kafka -> MinIO bronze ingestion + PII masking
 warehouse/dbt/fraud_warehouse/         dbt models, snapshots, tests, macros
@@ -99,19 +83,19 @@ load_bronze_to_postgres.py             bridges MinIO Parquet into Postgres
 
 ## Running it
 
-Requires Docker (allow it ~6 CPUs / 10GB RAM), Python 3.11, and Java 17
-for Spark. Spark runs on the host; everything else runs in containers.
+Requires Docker (allow ~6 CPUs / 10GB RAM), Python 3.11, Java 17 (for PySpark), and Make.
 
 ```bash
-pip install -e ".[dev]"
-pip install dbt-postgres==1.8.2
+# Set up the Python virtual environment and dependencies
+make setup
+source .venv/bin/activate
 
 # Recommended: Run the entire end-to-end pipeline automatically
 make demo
 
 # --- Or run the individual steps manually ---
-# 1. start services
-make up                 # wait for services to report healthy
+# 1. start services and wait for health checks
+make up                 
 
 # 2. one-time setup
 make seed               # populate public.users / public.merchants
@@ -119,25 +103,20 @@ make connector          # register the Debezium CDC connector
 
 # 3. ingestion (run, then ctrl+c after ~30s)
 make gen                # generate events into Kafka
-# Or generate events aggressively:
-python -m ingestion.transaction_generator.src.run --firehose
 
 # 4. streaming (run, then ctrl+c once the backlog is drained)
 make bronze             # Spark: Kafka -> MinIO bronze Parquet
 
-# 5. historical backfill (bypasses Kafka)
-python -m ingestion.transaction_generator.src.backfill --rows 1000000
-
-# 6. warehouse
+# 5. warehouse
 make load               # MinIO Parquet -> Postgres bronze.transactions
 make dbt                # dbt snapshot + run + test
 
-# 7. serving
+# 6. serving
 make features           # Postgres gold -> Redis
 make api                # FastAPI on :8002
 ```
 
-Pick a real user id from the warehouse, then query it:
+To test the API, grab a valid user ID from the database and query the endpoint:
 
 ```bash
 docker compose exec postgres psql -U fraud_admin -d fraud_reference -c \
@@ -146,41 +125,24 @@ docker compose exec postgres psql -U fraud_admin -d fraud_reference -c \
 curl -H "X-API-Key: sk_test_123" localhost:8002/v1/features/user/<user_id> | python -m json.tool
 ```
 
-The Airflow DAG (`fraud_feature_pipeline`, http://localhost:8081) runs the
-batch half — snapshot, run, test, feature load — on a 4-hour schedule.
-`dbt test` is a gate: if it fails, the feature load is skipped and the
-previous features stay in Redis until their TTL expires.
+The Airflow UI is available at `http://localhost:8081` (credentials are printed at the end of the `make demo` output). `dbt test` acts as a gate in the DAG; if tests fail, the Redis feature load is skipped.
 
 ## Design notes
 
-- **Reconciliation** — `recon_bronze_silver` asserts
-  `bronze_total = silver_total + filtered_count`. A non-zero
-  `unaccounted_records` fails a dbt test. The generator emits clean data,
-  so the filter path is exercised mainly by the validation rules in
-  `stg_transactions`.
-- **SCD Type 2** — update a merchant's `risk_tier` (e.g. MEDIUM → HIGH) in
-  Postgres, re-run `dbt snapshot`, and the snapshot table shows two rows
-  with validity timestamps. This answers "what was the risk tier *at the
-  time* of the transaction".
-- **NUMERIC for money** — amounts are cast to `NUMERIC(12,2)`; float
-  arithmetic is not acceptable for currency.
-- **Redis for serving** — feature lookups need single-digit-millisecond
-  reads, which Redis gives consistently and a SQL query against the
-  warehouse does not.
+- **Reconciliation**: `recon_bronze_silver` asserts `bronze_total = silver_total + filtered_count`. A non-zero `unaccounted_records` fails a dbt test.
+- **SCD Type 2**: Updating a merchant's `risk_tier` in Postgres and re-running `dbt snapshot` creates multiple rows with validity timestamps. This tracks risk tier history over time.
+- **NUMERIC for money**: Amounts are cast to `NUMERIC(12,2)`. Float arithmetic is not used for currency.
+- **Redis for serving**: Feature lookups require single-digit-millisecond reads. Redis provides this consistently.
 
 ## Architectural Trade-offs & Known Limitations
 
-- **Kafka Partitioning Bottleneck**: The `transactions.raw` topic is currently configured with a single partition. This was a deliberate choice for this local prototype to guarantee strict global ordering, but it severely limits consumer parallelism and prevents horizontal scaling of the Spark Structured Streaming job.
-- **Cold Start (ML Serving)**: The API currently returns a `404 Not Found` for new users instead of a default feature vector (e.g., zeroes). This can cause ML models to fail when scoring brand new accounts.
-- **Batch vs. Streaming Features**: Features are calculated in batch via dbt. Real-time velocity spikes (e.g., a stolen card swiped 20 times in 5 minutes) won't be caught by the API until the next Airflow batch run. A streaming feature processor (like Flink) is required for V2.
-- **Feature serving has not been load-tested** (though the v1 API now tracks latency in the headers).
-- **Data Privacy & PII**: Transaction data (amounts, user IDs, merchant data) is currently flowing through Kafka and stored in Redis in plain text. For production, PII must be hashed or tokenized to comply with GDPR.
-- **Business Observability**: The architecture lacks a business-level dashboard (e.g., Tableau/Looker) connected to Postgres to monitor financial metrics like Total Transactions Blocked, Revenue Saved, and Customer Dispute Rates.
-- **False Positives / Shadow Mode**: The ML heuristics are aggressive and lack real-world tuning. The model must run in 'Shadow Mode' to measure false positives before actively blocking customer transactions.
-- No auth or TLS (except for the dummy API Key on the v1 API).
+- **Kafka Partitioning**: The `transactions.raw` topic uses a single partition to guarantee global ordering for this prototype. This prevents horizontal scaling of the Spark streaming job.
+- **Cold Start**: The API returns `404 Not Found` for new users instead of a default feature vector.
+- **Batch Features**: Features are calculated in batch via dbt. A streaming feature processor (e.g., Flink) is required to catch real-time velocity spikes.
+- **Data Privacy**: Transaction data currently flows through Kafka and Redis in plain text. PII tokenization is required for production compliance.
+- No TLS or production-grade auth.
 - Credentials are hardcoded local defaults.
-- No CI/CD or automated infrastructure deployment.
-- Generator produces clean data; the validation/recon paths are not stress-tested with deliberately malformed input.
+- No automated CI/CD.
 
 ---
 

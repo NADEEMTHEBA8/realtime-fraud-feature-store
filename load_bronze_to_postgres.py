@@ -3,12 +3,14 @@ Load bronze Parquet (MinIO) into Postgres as bronze.transactions.
 
 Bridges the streaming output into the warehouse so dbt can read it as a
 source. All columns land as TEXT — typing happens in stg_transactions.
-Re-running fully replaces the table.
+Uses Spark's native JDBC writer to prevent OOM errors, and performs a 
+transactional staging table swap to ensure zero downtime.
 """
 
+import os
 import psycopg2
-from psycopg2.extras import execute_values
 
+from pyspark.sql.functions import col
 from streaming.spark.src.config import create_spark_session
 
 
@@ -18,35 +20,66 @@ def main() -> None:
 
     # _raw_json is kept in bronze Parquet for debugging but is not needed
     # (and is bulky) in the warehouse table.
-    columns = [c for c in df.columns if c != "_raw_json"]
-    rows = [tuple(str(v) if v is not None else None for v in r)
-            for r in df.select(columns).collect()]
-    spark.stop()
-    print(f"Read {len(rows)} rows from MinIO")
+    df = df.drop("_raw_json")
 
+    # Cast all columns to string to match Postgres TEXT expectations for raw layer
+    for c in df.columns:
+        df = df.withColumn(c, col(c).cast("string"))
+
+    pg_url = "jdbc:postgresql://127.0.0.1:5434/fraud_reference"
+    pg_user = os.getenv("PG_USER", "fraud_admin")
+    pg_password = os.getenv("PG_PASSWORD", "changeme_local_only")
+    
+    properties = {
+        "user": pg_user,
+        "password": pg_password,
+        "driver": "org.postgresql.Driver"
+    }
+
+    print("Writing data to temporary staging table via JDBC...")
+    # Write to a temporary staging table
+    staging_table = "bronze.transactions_staging"
+    target_table = "bronze.transactions"
+
+    # Ensure schema exists using psycopg2 before spark writes
     conn = psycopg2.connect(
         host="127.0.0.1",
         port=5434,
         dbname="fraud_reference",
-        user="fraud_admin",
-        password="changeme_local_only",
+        user=pg_user,
+        password=pg_password,
     )
     try:
         with conn, conn.cursor() as cur:
             cur.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-            cur.execute("DROP TABLE IF EXISTS bronze.transactions CASCADE")
-            col_defs = ", ".join(f'"{c}" TEXT' for c in columns)
-            cur.execute(f"CREATE TABLE bronze.transactions ({col_defs})")
-
-            col_list = ", ".join(f'"{c}"' for c in columns)
-            execute_values(
-                cur,
-                f"INSERT INTO bronze.transactions ({col_list}) VALUES %s",
-                rows,
-            )
-        print(f"Loaded {len(rows)} rows into bronze.transactions")
     finally:
         conn.close()
+
+    df.write.jdbc(url=pg_url, table=staging_table, mode="overwrite", properties=properties)
+
+    print("Performing transactional table swap...")
+    # Perform transactional swap
+    conn = psycopg2.connect(
+        host="127.0.0.1",
+        port=5434,
+        dbname="fraud_reference",
+        user=pg_user,
+        password=pg_password,
+    )
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("BEGIN;")
+            cur.execute(f"DROP TABLE IF EXISTS {target_table} CASCADE;")
+            cur.execute(f"ALTER TABLE {staging_table} RENAME TO transactions;")
+            cur.execute("COMMIT;")
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+    print(f"Successfully loaded data into {target_table}")
+    spark.stop()
 
 
 if __name__ == "__main__":

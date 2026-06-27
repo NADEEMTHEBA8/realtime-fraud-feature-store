@@ -114,14 +114,10 @@ def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str, once: boo
     if once:
         writer = writer.trigger(availableNow=True)
     else:
-        writer = writer.trigger(processingTime="30 seconds")
+        writer = writer.trigger(processingTime="2 minutes")
 
     return (
         writer
-        # TODO: S3 Small File Problem - Triggering micro-batches every 30 seconds creates 
-        # thousands of tiny Parquet files per hour partition under low volume. This will 
-        # severely degrade downstream dbt load performance. We need to implement a compaction 
-        # job or dynamically tune the trigger interval.
         .option("checkpointLocation", checkpoint)
         .option("path", output)
         .partitionBy("event_date", "event_hour")
@@ -146,7 +142,7 @@ def write_dead_letters(df: DataFrame, checkpoint: str, bootstrap: str, once: boo
     if once:
         writer = writer.trigger(availableNow=True)
     else:
-        writer = writer.trigger(processingTime="30 seconds")
+        writer = writer.trigger(processingTime="2 minutes")
 
     return (
         writer
@@ -171,12 +167,12 @@ def run() -> None:
     spark = create_spark_session(app_name="bronze-ingest")
     try:
         raw_df = build_kafka_source(spark, bootstrap, topic)
-        valid_df, invalid_df = parse_and_validate(raw_df)
-        valid_df = mask_pii(valid_df)
-        valid_df = add_partition_columns(valid_df)
+        parsed_txns, malformed_txns = parse_and_validate(raw_df)
+        parsed_txns = mask_pii(parsed_txns)
+        parsed_txns = add_partition_columns(parsed_txns)
 
-        write_bronze_to_minio(valid_df, bronze_checkpoint, bronze_output, once=args.once)
-        write_dead_letters(invalid_df, dead_letter_checkpoint, bootstrap, once=args.once)
+        write_bronze_to_minio(parsed_txns, bronze_checkpoint, bronze_output, once=args.once)
+        write_dead_letters(malformed_txns, dead_letter_checkpoint, bootstrap, once=args.once)
 
         logger.info("Streams started.")
         

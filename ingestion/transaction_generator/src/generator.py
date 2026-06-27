@@ -1,14 +1,8 @@
 """
 Core transaction event generator.
 
-Produces realistic Indian fintech transaction events by combining user and
-merchant profiles with domain-aware randomization: time-of-day patterns,
-amount distributions around each user's baseline, geographic consistency,
-and weighted payment method selection.
-
-This module does NOT handle fraud injection or Kafka publishing.
-Those are separate concerns in separate modules, following the single
-responsibility principle.
+Produces synthetic Indian fintech transaction events by combining user and
+merchant profiles with domain-aware randomization.
 """
 
 from __future__ import annotations
@@ -139,14 +133,7 @@ class TransactionGenerator:
         return self._rng.choice(self._merchants)
 
     def _generate_amount(self, user: UserProfile, merchant: MerchantProfile) -> Decimal:
-        """
-        Generate a realistic transaction amount based on user and merchant.
-
-        Uses a log-normal distribution centered on the user's average
-        transaction amount, capped by a reasonable multiple of the
-        merchant's average ticket size. This produces the heavy-tailed
-        distribution seen in real payment data.
-        """
+        """Generate a transaction amount based on user and merchant baselines."""
         # Base amount from user's spending pattern
         base = float(user.avg_transaction_amount)
         raw = self._rng.lognormvariate(0, 0.5) * base
