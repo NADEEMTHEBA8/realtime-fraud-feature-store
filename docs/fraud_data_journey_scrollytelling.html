@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Scrollytelling Data Journey</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'Fira Code', monospace; }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+        .arch-node {
+            width: 100%;
+            padding: 1rem;
+            background: #1e293b;
+            border: 2px solid #334155;
+            border-radius: 0.75rem;
+            color: #94a3b8;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 10;
+        }
+
+        .node-active {
+            background: #0f172a;
+            color: #ffffff;
+            transform: scale(1.05);
+        }
+
+        .line-connector {
+            width: 4px;
+            height: 30px;
+            background: #334155;
+            margin: 0 auto;
+            position: relative;
+            z-index: 0;
+            transition: background 0.5s;
+        }
+
+        #data-packet {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #3b82f6;
+            box-shadow: 0 0 20px #3b82f6, 0 0 40px #3b82f6;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            transition: top 0.8s cubic-bezier(0.25, 1, 0.5, 1), background-color 0.8s;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+        }
+
+        /* Syntax highlighting styles for the pre blocks */
+        .key { color: #818cf8; }
+        .string { color: #34d399; }
+        .number { color: #f472b6; }
+        .comment { color: #64748b; font-style: italic; }
+    </style>
+</head>
+<body class="bg-[#0b1120] text-slate-200 antialiased overflow-x-hidden">
+
+    <div class="flex flex-col lg:flex-row min-h-screen">
+        
+        <!-- Left Panel: Sticky Architecture Visualization -->
+        <div class="lg:w-[45%] lg:h-screen lg:sticky lg:top-0 bg-[#060b14] border-r border-slate-800 flex flex-col justify-center items-center p-8 relative">
+            
+            <div class="absolute top-8 left-8 flex items-center gap-3">
+                <i class="fa-solid fa-microchip text-blue-500 text-2xl"></i>
+                <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 leading-tight">Data Journey<br><span class="text-sm font-medium tracking-widest uppercase text-slate-500">Explorer</span></h1>
+            </div>
+
+            <div class="text-center mb-8 mt-12 w-full max-w-sm">
+                <p class="text-slate-400 text-sm">Scroll down on the right to push the data through the real-time pipeline.</p>
+                <div class="mt-4 animate-bounce text-slate-600"><i class="fa-solid fa-arrow-down"></i></div>
+            </div>
+
+            <!-- The Architecture Diagram -->
+            <div class="relative w-full max-w-sm" id="arch-graph">
+                
+                <!-- The Moving Data Packet -->
+                <div id="data-packet" style="top: 0px; opacity: 0;"><i class="fa-solid fa-code" id="packet-icon"></i></div>
+
+                <!-- Nodes -->
+                <div class="node-wrapper relative">
+                    <div id="node-1" class="arch-node"><i class="fa-solid fa-mobile-screen text-2xl w-8 text-center"></i> 1. Generator API</div>
+                    <div class="line-connector" id="line-1"></div>
+                </div>
+
+                <div class="node-wrapper relative">
+                    <div id="node-2" class="arch-node"><i class="fa-solid fa-bolt text-2xl w-8 text-center"></i> 2. Kafka Buffer</div>
+                    <div class="line-connector" id="line-2"></div>
+                </div>
+
+                <div class="node-wrapper relative">
+                    <div id="node-3" class="arch-node"><i class="fa-solid fa-water text-2xl w-8 text-center"></i> 3. Spark & Delta Lake</div>
+                    <div class="line-connector" id="line-3"></div>
+                </div>
+
+                <div class="node-wrapper relative">
+                    <div id="node-4" class="arch-node"><i class="fa-solid fa-building text-2xl w-8 text-center"></i> 4. Postgres Warehouse</div>
+                    <div class="line-connector" id="line-4"></div>
+                </div>
+
+                <div class="node-wrapper relative">
+                    <div id="node-5" class="arch-node"><i class="fa-solid fa-hammer text-2xl w-8 text-center"></i> 5. dbt Transformations</div>
+                    <div class="line-connector" id="line-5"></div>
+                </div>
+
+                <div class="node-wrapper relative">
+                    <div id="node-6" class="arch-node"><i class="fa-solid fa-rocket text-2xl w-8 text-center"></i> 6. Redis Feature Store</div>
+                    <div class="line-connector" id="line-6"></div>
+                </div>
+
+                <div class="node-wrapper relative">
+                    <div id="node-7" class="arch-node"><i class="fa-solid fa-brain text-2xl w-8 text-center"></i> 7. ML Inference</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Panel: Scrollytelling Story -->
+        <div class="lg:w-[55%] p-8 lg:p-20">
+            <div class="max-w-2xl mx-auto space-y-[60vh] pt-[10vh] pb-[60vh]">
+                
+                <!-- Step 1 -->
+                <div class="story-step" data-step="1">
+                    <div class="text-blue-500 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-play"></i> Step 1: The Event</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">A User Swipes a Card</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed">The journey begins when our mobile app or web client hits our backend. The data arrives as raw, unstructured JSON. At this exact moment, we have no idea if this is a legitimate purchase or a stolen credit card testing a merchant.</p>
+                    
+                    <div class="bg-[#0f172a] rounded-xl p-5 border border-slate-700 shadow-2xl relative">
+                        <div class="absolute -top-3 right-4 bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 font-mono">Payload.json</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-json">{
+  <span class="key">"event_id"</span>: <span class="string">"evt_981723A"</span>,
+  <span class="key">"user_id"</span>: <span class="string">"u_4591"</span>,
+  <span class="key">"merchant_id"</span>: <span class="string">"m_102"</span>,
+  <span class="key">"amount_usd"</span>: <span class="number">899.99</span>,
+  <span class="key">"timestamp"</span>: <span class="string">"2026-06-26T10:45:12Z"</span>
+}</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-blue-900/10 border border-blue-500/30 rounded-lg p-4 transition-all hover:bg-blue-900/20">
+                        <div class="text-xs font-bold uppercase text-blue-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: Why not just use a static CSV?</strong><br>A: A continuous Python generator proves I can handle unbounded streaming data, which is mathematically and architecturally different from a finite batch of CSV rows.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="story-step" data-step="2">
+                    <div class="text-orange-500 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-bolt"></i> Step 2: Ingestion Buffer</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">Securing the Event in Kafka</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed">We can't write directly to a database, because if Black Friday traffic spikes, the database will crash. Instead, we instantly drop the JSON payload into an <strong>Apache Kafka</strong> topic. Kafka acts as an infinitely scalable "shock absorber". The data is now a distributed byte-stream safely written to disk.</p>
+                    
+                    <div class="bg-[#0f172a] rounded-xl p-5 border border-slate-700 shadow-2xl relative">
+                        <div class="absolute -top-3 right-4 bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 font-mono">Kafka Record Metadata</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-json">{
+  <span class="comment">// Kafka wraps the payload with cluster routing info</span>
+  <span class="key">"topic"</span>: <span class="string">"transactions.live"</span>,
+  <span class="key">"partition"</span>: <span class="number">3</span>,
+  <span class="key">"offset"</span>: <span class="number">981249</span>,
+  <span class="key">"key"</span>: <span class="string">"u_4591"</span>, <span class="comment">// Partitioned by user</span>
+  <span class="key">"value"</span>: <span class="string">"{...raw payload bytes...}"</span>
+}</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-orange-900/10 border border-orange-500/30 rounded-lg p-4 transition-all hover:bg-orange-900/20">
+                        <div class="text-xs font-bold uppercase text-orange-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: Why Kafka?</strong><br>A: It acts as an infinitely scalable shock absorber. It prevents my database from crashing during traffic spikes and allows multiple downstream consumers to read the exact same event log without deleting it.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="story-step" data-step="3">
+                    <div class="text-slate-400 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-bucket"></i> Step 3: Bronze Lakehouse</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">Spark Micro-Batching to S3</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed"><strong>Apache Spark</strong> continuously reads the Kafka stream. Every few seconds, it groups thousands of JSON events together, enforces a schema, and converts them into highly-compressed, columnar <strong>Parquet</strong> files. It saves these to S3 using the <strong>Delta Lake</strong> format, creating our immutable "Bronze" layer.</p>
+                    
+                    <div class="bg-[#0f172a] rounded-xl p-5 border border-slate-700 shadow-2xl relative">
+                        <div class="absolute -top-3 right-4 bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 font-mono">Delta Log Entry</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-json"><span class="comment">// Delta Lake ensures ACID transactions on S3</span>
+{
+  <span class="key">"add"</span>: {
+    <span class="key">"path"</span>: <span class="string">"part-0003-a2b.snappy.parquet"</span>,
+    <span class="key">"size"</span>: <span class="number">1048576</span>,
+    <span class="key">"partitionValues"</span>: {<span class="key">"date"</span>: <span class="string">"2026-06-26"</span>},
+    <span class="key">"stats"</span>: <span class="string">"{\"numRecords\": 5000, \"minValues\": ...}"</span>
+  }
+}</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-slate-800/50 border border-slate-500/30 rounded-lg p-4 transition-all hover:bg-slate-700/50">
+                        <div class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: What is a Lakehouse?</strong><br>A: Delta Lake merges the cheap, massive scale of S3 object storage with the ACID transactions (updates/deletes) of a traditional database by utilizing Parquet files alongside a transaction log.</p>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="story-step" data-step="4">
+                    <div class="text-emerald-500 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-building"></i> Step 4: The Data Warehouse</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">Relational Loading</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed">S3 is great for cheap storage, but terrible for low-latency joins. We ingest the raw Delta files into a relational <strong>PostgreSQL Data Warehouse</strong>. Now, the transaction data sits next to our slowly changing dimensions (like User Profiles and Merchant Categories synced via Debezium CDC).</p>
+                    
+                    <div class="bg-[#0f172a] rounded-xl p-5 border border-slate-700 shadow-2xl relative">
+                        <div class="absolute -top-3 right-4 bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 font-mono">SQL View</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-sql"><span class="comment">-- Data is now strictly typed and queryable</span>
+SELECT 
+  txn.user_id,
+  txn.amount_usd,
+  merch.category <span class="comment">-- Joined from CDC stream!</span>
+FROM bronze_transactions txn
+JOIN silver_merchants merch 
+  ON txn.merchant_id = merch.id;</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-emerald-900/10 border border-emerald-500/30 rounded-lg p-4 transition-all hover:bg-emerald-900/20">
+                        <div class="text-xs font-bold uppercase text-emerald-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: Why move the data to Postgres?</strong><br>A: While S3 is great for raw scale, Postgres provides the ultra-low latency SQL joins and relational constraints needed by BI analysts and downstream dbt modeling.</p>
+                    </div>
+                </div>
+
+                <!-- Step 5 -->
+                <div class="story-step" data-step="5">
+                    <div class="text-yellow-500 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-hammer"></i> Step 5: Silver & Gold</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">dbt Feature Engineering</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed">Raw data doesn't catch fraud; <em>behavior</em> catches fraud. <strong>dbt (Data Build Tool)</strong> runs complex SQL aggregations on the warehouse data. It calculates historical behavior (e.g., "How much has this user spent in the last 24 hours?"). This highly refined dataset is our "Gold" layer.</p>
+                    
+                    <div class="bg-[#0f172a] rounded-xl p-5 border border-slate-700 shadow-2xl relative">
+                        <div class="absolute -top-3 right-4 bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 font-mono">Gold Feature Row</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-json">{
+  <span class="comment">// The output of our dbt aggregations</span>
+  <span class="key">"user_id"</span>: <span class="string">"u_4591"</span>,
+  <span class="key">"24h_spend_velocity"</span>: <span class="number">1250.00</span>,
+  <span class="key">"7d_txn_count"</span>: <span class="number">45</span>,
+  <span class="key">"distinct_merchants_24h"</span>: <span class="number">8</span>
+}</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-yellow-900/10 border border-yellow-500/30 rounded-lg p-4 transition-all hover:bg-yellow-900/20">
+                        <div class="text-xs font-bold uppercase text-yellow-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: What problem does dbt solve?</strong><br>A: It brings software engineering best practices to SQL. It handles dependency resolution, testing, and CI/CD, guaranteeing that the mathematical features feeding my ML models are never broken.</p>
+                    </div>
+                </div>
+
+                <!-- Step 6 -->
+                <div class="story-step" data-step="6">
+                    <div class="text-red-500 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-rocket"></i> Step 6: The Serving Layer</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">Syncing to Redis</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed">Postgres analytical queries are too slow (hundreds of ms) for a live checkout flow. We take the Gold features generated by dbt and push them into <strong>Redis</strong>, an incredibly fast in-memory key-value store. The data is now staged and ready for instant retrieval.</p>
+                    
+                    <div class="bg-[#0f172a] rounded-xl p-5 border border-slate-700 shadow-2xl relative">
+                        <div class="absolute -top-3 right-4 bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 font-mono">Redis Key-Value Pair</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-json"><span class="comment">// Ultra-fast O(1) lookup structure</span>
+<span class="key">"HGETALL"</span> <span class="string">"features:u_4591"</span>
+{
+  <span class="key">"velocity"</span>: <span class="string">"1250.00"</span>,
+  <span class="key">"count"</span>: <span class="string">"45"</span>,
+  <span class="key">"merchants"</span>: <span class="string">"8"</span>
+}</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-red-900/10 border border-red-500/30 rounded-lg p-4 transition-all hover:bg-red-900/20">
+                        <div class="text-xs font-bold uppercase text-red-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: Why add Redis to the stack?</strong><br>A: Postgres is too slow for a <50ms checkout flow. We pre-compute features via dbt and push them to Redis for instant O(1) in-memory retrieval by the live application.</p>
+                    </div>
+                </div>
+
+                <!-- Step 7 -->
+                <div class="story-step" data-step="7">
+                    <div class="text-purple-500 font-bold mb-2 uppercase tracking-widest text-sm flex items-center gap-2"><i class="fa-solid fa-brain"></i> Step 7: Live Inference</div>
+                    <h2 class="text-4xl font-bold text-white mb-6">The ML Model Strikes</h2>
+                    <p class="text-slate-400 text-lg mb-6 leading-relaxed">The loop closes. When the <em>next</em> transaction arrives at the FastAPI endpoint, the API instantly pulls the historical features from Redis, combines them with the live transaction, and hands the unified array to the Machine Learning model. A fraud decision is returned to the user.</p>
+                    
+                    <div class="bg-purple-900/20 rounded-xl p-5 border border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.2)] relative">
+                        <div class="absolute -top-3 right-4 bg-purple-600 text-white text-xs px-2 py-1 rounded border border-purple-500 font-bold tracking-widest uppercase">Latency: 42ms</div>
+                        <pre class="font-mono text-sm overflow-x-auto"><code class="language-json"><span class="comment">// The final API Response</span>
+{
+  <span class="key">"transaction_id"</span>: <span class="string">"evt_981723A"</span>,
+  <span class="key">"status"</span>: <span class="string">"BLOCKED"</span>,
+  <span class="key">"fraud_probability"</span>: <span class="number">0.96</span>,
+  <span class="key">"reason"</span>: <span class="string">"High velocity + New Merchant Category"</span>
+}</code></pre>
+                    </div>
+
+                    <!-- Cheat Sheet -->
+                    <div class="mt-6 bg-purple-900/10 border border-purple-500/30 rounded-lg p-4 transition-all hover:bg-purple-900/20">
+                        <div class="text-xs font-bold uppercase text-purple-400 tracking-wider mb-2"><i class="fa-solid fa-fire mr-1"></i> Interview Quick-Hit</div>
+                        <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Q: How does the model stay fast?</strong><br>A: Because 99% of the heavy lifting (aggregations, joins) is done asynchronously overnight. The live API only has to execute a simple matrix multiplication on pre-calculated numbers.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript logic for intersection observer -->
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const steps = document.querySelectorAll('.story-step');
+            const dataPacket = document.getElementById('data-packet');
+            
+            // Node colors mapped by step
+            const colors = {
+                1: '#3b82f6', // blue
+                2: '#f97316', // orange
+                3: '#94a3b8', // slate
+                4: '#10b981', // emerald
+                5: '#eab308', // yellow
+                6: '#ef4444', // red
+                7: '#a855f7'  // purple
+            };
+
+            // Icons mapped by step
+            const icons = {
+                1: 'fa-code',
+                2: 'fa-box',
+                3: 'fa-table-cells',
+                4: 'fa-database',
+                5: 'fa-gears',
+                6: 'fa-bolt',
+                7: 'fa-check-double'
+            };
+
+            const observerOptions = {
+                root: null,
+                rootMargin: '-40% 0px -40% 0px', // Trigger when element is near center of viewport
+                threshold: 0
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const stepNum = entry.target.getAttribute('data-step');
+                        activateNode(stepNum);
+                    }
+                });
+            }, observerOptions);
+
+            steps.forEach(step => observer.observe(step));
+
+            function activateNode(stepNum) {
+                // Dim all nodes and lines
+                for(let i=1; i<=7; i++) {
+                    const node = document.getElementById('node-'+i);
+                    node.classList.remove('node-active');
+                    node.style.borderColor = '#334155';
+                    node.style.boxShadow = 'none';
+                    
+                    if (i < 7) {
+                        const line = document.getElementById('line-'+i);
+                        // If line is BEFORE current step, color it. Otherwise grey.
+                        if (i < stepNum) {
+                            line.style.background = colors[i];
+                        } else {
+                            line.style.background = '#334155';
+                        }
+                    }
+                }
+
+                // Activate current node
+                const activeNode = document.getElementById('node-'+stepNum);
+                activeNode.classList.add('node-active');
+                activeNode.style.borderColor = colors[stepNum];
+                activeNode.style.boxShadow = `0 0 25px ${colors[stepNum]}60`; // 60 for opacity
+
+                // Move Data Packet
+                // Calculate position relative to the #arch-graph container
+                const containerRect = document.getElementById('arch-graph').getBoundingClientRect();
+                const nodeRect = activeNode.getBoundingClientRect();
+                
+                // We want the packet to sit on the left edge of the node, or perfectly centered.
+                // Let's center it exactly on the active node.
+                const topPos = (nodeRect.top - containerRect.top) + (nodeRect.height / 2);
+                
+                dataPacket.style.opacity = 1;
+                dataPacket.style.top = `${topPos}px`;
+                dataPacket.style.backgroundColor = colors[stepNum];
+                dataPacket.style.boxShadow = `0 0 20px ${colors[stepNum]}, 0 0 40px ${colors[stepNum]}`;
+
+                // Morph Data Packet Icon
+                const packetIcon = document.getElementById('packet-icon');
+                packetIcon.className = `fa-solid ${icons[stepNum]} fa-spin-hover`;
+            }
+        });
+    </script>
+</body>
+</html>

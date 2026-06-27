@@ -30,6 +30,9 @@ def main() -> None:
     parser.add_argument(
         "--firehose", action="store_true", help="Aggressively batch events without sleep"
     )
+    parser.add_argument(
+        "--max-events", type=int, default=0, help="Stop after this many events"
+    )
     args = parser.parse_args()
 
     print(f"Generating {NUM_USERS} users / {NUM_MERCHANTS} merchants (seed={SEED})")
@@ -58,6 +61,9 @@ def main() -> None:
             producer.send(event)
             total_sent += 1
 
+            if args.max_events > 0 and total_sent >= args.max_events:
+                break
+
             if total_sent % PRINT_EVERY == 0:
                 elapsed = time.time() - start_time
                 actual_rate = total_sent / elapsed if elapsed > 0 else 0
@@ -68,6 +74,9 @@ def main() -> None:
                 time.sleep(delay)
 
     except KeyboardInterrupt:
+        pass
+    
+    finally:
         producer.flush()
         elapsed = time.time() - start_time
         stats = producer.stats

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Simulator: Interview Prep</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Custom Scrollbar for sleekness */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+
+        .node-card {
+            width: 220px;
+            height: 220px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: #1e293b;
+            border: 2px solid #334155;
+            border-radius: 50%;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            position: relative;
+            z-index: 10;
+        }
+
+        .node-icon {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .track-container {
+            position: relative;
+            height: 100%;
+            display: flex;
+            align-items: center;
+        }
+
+        #track {
+            display: flex;
+            gap: 120px;
+            padding: 0 50vw; /* Padding ensures first and last nodes can be centered */
+            position: absolute;
+            left: 0;
+            transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: transform;
+        }
+
+        .pulse-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 4px solid #3b82f6;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+            100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+        }
+
+        .node-card.active .pulse-ring {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-[#0b1120] text-slate-200 h-screen overflow-hidden flex flex-col">
+
+    <!-- Top Controls Bar -->
+    <header class="h-20 bg-[#0f172a] border-b border-slate-800 flex items-center justify-between px-6 shrink-0 shadow-xl z-20">
+        <div class="flex items-center gap-4">
+            <i class="fa-solid fa-server text-blue-500 text-2xl"></i>
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Pipeline Simulator</h1>
+                <p class="text-xs text-slate-400 font-mono tracking-widest uppercase">Interview Prep Mode</p>
+            </div>
+        </div>
+        
+        <div class="flex gap-4 items-center bg-slate-900 px-4 py-2 rounded-full border border-slate-700">
+            <button id="btn-prev" onclick="prevStep()" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-700 text-slate-300 transition-colors">
+                <i class="fa-solid fa-backward-step"></i>
+            </button>
+            <button id="btn-play" onclick="togglePlay()" class="w-12 h-12 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)] transition-all transform hover:scale-105">
+                <i class="fa-solid fa-play ml-1" id="play-icon"></i>
+            </button>
+            <button id="btn-next" onclick="nextStep()" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-700 text-slate-300 transition-colors">
+                <i class="fa-solid fa-forward-step"></i>
+            </button>
+        </div>
+        
+        <div class="text-sm text-slate-500 font-mono">
+            Step <span id="step-counter" class="text-white font-bold">1</span> / 8
+        </div>
+    </header>
+
+    <!-- Center: Horizontal Scrolling Track -->
+    <main class="flex-1 relative overflow-hidden bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-[#0b1120]">
+        
+        <!-- Background Grid for aesthetics -->
+        <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px); background-size: 40px 40px;"></div>
+
+        <div class="track-container" id="container">
+            <div id="track">
+                <!-- Base connection line -->
+                <div class="absolute top-1/2 -translate-y-1/2 h-2 bg-slate-800 rounded-full" style="left: 50vw; right: 50vw; z-index: 0;"></div>
+                
+                <!-- Progress connection line -->
+                <div id="progress-line" class="absolute top-1/2 -translate-y-1/2 h-2 bg-blue-500 rounded-full shadow-[0_0_15px_#3b82f6] transition-all duration-800 ease-out" style="left: 50vw; width: 0; z-index: 1;"></div>
+
+                <!-- Nodes injected by JS -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom: Interview Prep Panel -->
+    <footer id="interview-panel" class="bg-[#0f172a] border-t border-slate-800 shrink-0 p-8 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] z-20 transition-transform duration-500 transform translate-y-full h-[350px]">
+        <div class="max-w-5xl mx-auto flex flex-col md:flex-row gap-10 items-start h-full">
+            
+            <!-- Left Side: Component Info & Question -->
+            <div class="flex-1 w-full">
+                <h2 class="text-3xl font-bold text-white mb-1" id="panel-title">Title</h2>
+                <div class="text-blue-400 font-mono text-sm mb-6 uppercase tracking-widest bg-blue-900/30 inline-block px-3 py-1 rounded border border-blue-800/50" id="panel-tech">Tech Stack</div>
+                
+                <div class="bg-slate-800/80 p-6 rounded-xl border border-slate-700 relative shadow-inner">
+                    <div class="absolute -top-3 left-6 bg-purple-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-[0_0_10px_rgba(147,51,234,0.5)]">
+                        <i class="fa-solid fa-microphone-lines mr-2"></i>Interview Question
+                    </div>
+                    <p class="text-slate-200 font-medium italic mt-3 text-lg leading-relaxed" id="panel-q">Question goes here?</p>
+                </div>
+            </div>
+
+            <!-- Right Side: The Aha Answer -->
+            <div class="flex-1 w-full h-full pb-8">
+                <div class="bg-blue-900/20 p-6 rounded-xl border border-blue-800/50 h-full relative shadow-inner">
+                    <div class="absolute -top-3 left-6 bg-emerald-500 text-white text-xs font-bold px-4 py-1 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]">
+                        <i class="fa-solid fa-lightbulb mr-2"></i>The "Aha!" Answer
+                    </div>
+                    <p class="text-slate-300 leading-relaxed mt-3 text-md" id="panel-a">Answer goes here.</p>
+                </div>
+            </div>
+
+        </div>
+    </footer>
+
+    <!-- JavaScript Data and Logic -->
+    <script>
+        const stepsData = [
+            {
+                id: 'app',
+                title: 'Transaction Generator',
+                tech: 'Python (make gen)',
+                icon: 'fa-mobile-screen',
+                color: '#3b82f6', // blue
+                q: 'Why build a synthetic generator instead of using a static Kaggle CSV?',
+                a: 'A static CSV cannot demonstrate real-time streaming capabilities. By building a live generator running continuously, I proved the pipeline can handle unbounded event streams—a core requirement for modern fraud detection where data never stops arriving.'
+            },
+            {
+                id: 'kafka',
+                title: 'Apache Kafka',
+                tech: 'Message Broker (make bronze)',
+                icon: 'fa-bolt',
+                color: '#f97316', // orange
+                q: 'Why Kafka and not a direct database insert or RabbitMQ?',
+                a: 'Kafka acts as an infinitely scalable "shock absorber". During Black Friday traffic spikes, if the database slows down, Kafka safely retains the messages on disk. Furthermore, unlike RabbitMQ which deletes messages upon consumption, Kafka is an event log that allows multiple downstream consumers (Spark, monitoring, etc.) to read the exact same stream.'
+            },
+            {
+                id: 'spark',
+                title: 'Apache Spark',
+                tech: 'Structured Streaming',
+                icon: 'fa-water',
+                color: '#f97316',
+                q: 'Why use PySpark instead of a simple Python consumer loop?',
+                a: 'Simple Python scripts hit a bottleneck on a single CPU core. Spark Structured Streaming is natively distributed. It continuously groups the incoming Kafka stream into highly-optimized micro-batches and writes them in parallel, enabling the system to scale to millions of events per second across a cluster.'
+            },
+            {
+                id: 's3',
+                title: 'Delta Lake',
+                tech: 'Object Storage (S3 / MinIO)',
+                icon: 'fa-bucket',
+                color: '#94a3b8', // slate
+                q: 'Why use Delta Lake format over standard CSV or JSON files?',
+                a: 'JSON and CSV are row-based, lack schemas, and are incredibly slow to query at scale. Delta Lake uses columnar Parquet files coupled with a transaction log. This unlocks ACID transactions (updates/deletes) directly on cheap S3 object storage, merging the benefits of a Data Warehouse with a Data Lake (Lakehouse Architecture).'
+            },
+            {
+                id: 'postgres',
+                title: 'Data Warehouse',
+                tech: 'PostgreSQL (make load)',
+                icon: 'fa-building',
+                color: '#10b981', // emerald
+                q: 'Why load the data into Postgres after S3?',
+                a: 'While S3 (Delta Lake) is fantastic for cheap, massive, immutable storage (the Lake), a relational database provides the low-latency SQL computation engine required for our dbt transformations and serves structured schemas to BI analysts.'
+            },
+            {
+                id: 'dbt',
+                title: 'dbt Transforms',
+                tech: 'Data Build Tool (make dbt)',
+                icon: 'fa-hammer',
+                color: '#eab308', // yellow
+                q: 'What is the exact purpose of dbt in this architecture?',
+                a: 'dbt acts as the orchestration brain for our analytics. It takes the raw, messy data in Postgres and turns it into clean "Features" (like 24-hour spending velocity). It handles SQL dependency graphs, testing, and CI/CD deployment, ensuring our ML models always receive mathematically correct data.'
+            },
+            {
+                id: 'redis',
+                title: 'Feature Store',
+                tech: 'Redis Cache (make features)',
+                icon: 'fa-rocket',
+                color: '#ef4444', // red
+                q: 'Why do we need Redis? Why not just have the live API query Postgres directly?',
+                a: 'Postgres analytical queries take hundreds of milliseconds—far too slow for a real-time checkout flow. We pre-compute the features in Postgres via dbt, then sync them to Redis. Redis serves these pre-calculated features to our API in sub-millisecond times, guaranteeing a frictionless user checkout.'
+            },
+            {
+                id: 'api',
+                title: 'FastAPI Inference',
+                tech: 'FastAPI + ML (make api)',
+                icon: 'fa-brain',
+                color: '#a855f7', // purple
+                q: 'Walk me through the precise lifecycle of a live API scoring request.',
+                a: '1. A user swipes a card. The request hits FastAPI.<br>2. FastAPI instantly pulls the user\'s historical features (velocity, past fraud rate) from Redis.<br>3. It combines this history with the live swipe data.<br>4. It passes the unified payload to the ML model.<br>5. It returns an Allow/Block decision.<br><strong>All executed in under 50 milliseconds.</strong>'
+            }
+        ];
+
+        let currentStep = 0;
+        let isPlaying = false;
+        let playInterval;
+
+        const track = document.getElementById('track');
+        const progressLine = document.getElementById('progress-line');
+        const panel = document.getElementById('interview-panel');
+
+        // Initialization: Inject Nodes
+        function init() {
+            stepsData.forEach((step, index) => {
+                const node = document.createElement('div');
+                node.className = `node-card pipeline-node ${index === 0 ? 'active scale-110 border-blue-500 shadow-[0_0_30px_rgba(59,130,246,0.6)]' : 'opacity-50 scale-90 border-slate-700'}`;
+                node.id = `node-${index}`;
+                node.onclick = () => goToStep(index);
+                
+                node.innerHTML = `
+                    <div class="pulse-ring"></div>
+                    <i class="fa-solid ${step.icon} node-icon" style="color: ${step.color}"></i>
+                    <h3 class="font-bold text-white mt-2 px-2 leading-tight">${step.title}</h3>
+                `;
+                
+                track.appendChild(node);
+            });
+
+            // Delay first render to allow DOM layout to complete
+            setTimeout(() => {
+                goToStep(0);
+                // Slide up panel on load
+                panel.classList.remove('translate-y-full');
+            }, 100);
+        }
+
+        function goToStep(index) {
+            if (index < 0 || index >= stepsData.length) return;
+            currentStep = index;
+
+            // 1. Center the track
+            const node = document.getElementById(`node-${index}`);
+            // offsetLeft gives position relative to #track
+            const nodeCenter = node.offsetLeft + (node.offsetWidth / 2);
+            
+            // Math for centering
+            const containerCenter = window.innerWidth / 2;
+            const targetX = containerCenter - nodeCenter;
+            
+            track.style.transform = `translateX(${targetX}px)`;
+
+            // 2. Update Progress Line
+            // Line starts at first node's center and goes to current node's center.
+            const firstNode = document.getElementById('node-0');
+            const startOffset = firstNode.offsetLeft + (firstNode.offsetWidth / 2);
+            
+            progressLine.style.left = `${startOffset}px`;
+            progressLine.style.width = `${nodeCenter - startOffset}px`;
+
+            // 3. Update Node Styles
+            document.querySelectorAll('.pipeline-node').forEach((n, i) => {
+                const color = stepsData[i].color;
+                if (i === index) {
+                    n.className = 'node-card pipeline-node active scale-110';
+                    n.style.borderColor = color;
+                    n.style.boxShadow = `0 0 30px ${color}80`; // 80 is 50% opacity hex
+                    n.classList.remove('opacity-50');
+                } else if (i < index) {
+                    // Passed nodes
+                    n.className = 'node-card pipeline-node scale-95 opacity-80';
+                    n.style.borderColor = color;
+                    n.style.boxShadow = 'none';
+                } else {
+                    // Future nodes
+                    n.className = 'node-card pipeline-node scale-90 opacity-40';
+                    n.style.borderColor = '#334155';
+                    n.style.boxShadow = 'none';
+                }
+            });
+
+            // 4. Update Panel Content
+            const data = stepsData[index];
+            document.getElementById('panel-title').innerText = data.title;
+            document.getElementById('panel-tech').innerText = data.tech;
+            document.getElementById('panel-tech').style.borderColor = data.color;
+            document.getElementById('panel-tech').style.color = data.color;
+            document.getElementById('panel-tech').style.backgroundColor = `${data.color}20`; // 20% opacity
+            document.getElementById('panel-q').innerHTML = data.q;
+            document.getElementById('panel-a').innerHTML = data.a;
+
+            // 5. Update Header counter
+            document.getElementById('step-counter').innerText = index + 1;
+        }
+
+        // --- Controls Logic ---
+        function nextStep() {
+            if (currentStep < stepsData.length - 1) {
+                goToStep(currentStep + 1);
+            } else {
+                // If playing and reached end, stop
+                if (isPlaying) togglePlay();
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 0) goToStep(currentStep - 1);
+        }
+
+        function togglePlay() {
+            const playIcon = document.getElementById('play-icon');
+            if (isPlaying) {
+                // Pause
+                clearInterval(playInterval);
+                playIcon.classList.remove('fa-pause');
+                playIcon.classList.add('fa-play');
+                playIcon.parentElement.classList.remove('bg-rose-600', 'hover:bg-rose-500');
+                playIcon.parentElement.classList.add('bg-blue-600', 'hover:bg-blue-500');
+                isPlaying = false;
+            } else {
+                // Play
+                if (currentStep === stepsData.length - 1) {
+                    goToStep(0); // Reset if at end
+                }
+                
+                playInterval = setInterval(nextStep, 3500); // 3.5 seconds per step
+                playIcon.classList.remove('fa-play');
+                playIcon.classList.add('fa-pause');
+                playIcon.parentElement.classList.remove('bg-blue-600', 'hover:bg-blue-500');
+                playIcon.parentElement.classList.add('bg-rose-600', 'hover:bg-rose-500');
+                isPlaying = true;
+            }
+        }
+
+        // Handle resize properly
+        window.addEventListener('resize', () => {
+            goToStep(currentStep);
+        });
+
+        // Run
+        init();
+    </script>
+</body>
+</html>

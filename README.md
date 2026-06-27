@@ -106,6 +106,10 @@ for Spark. Spark runs on the host; everything else runs in containers.
 pip install -e ".[dev]"
 pip install dbt-postgres==1.8.2
 
+# Recommended: Run the entire end-to-end pipeline automatically
+make demo
+
+# --- Or run the individual steps manually ---
 # 1. start services
 make up                 # wait for services to report healthy
 
@@ -130,7 +134,7 @@ make dbt                # dbt snapshot + run + test
 
 # 7. serving
 make features           # Postgres gold -> Redis
-make api                # FastAPI on :8000
+make api                # FastAPI on :8002
 ```
 
 Pick a real user id from the warehouse, then query it:
@@ -139,7 +143,7 @@ Pick a real user id from the warehouse, then query it:
 docker compose exec postgres psql -U fraud_admin -d fraud_reference -c \
   "SELECT user_id FROM silver_gold.gold_user_fraud_features LIMIT 1;"
 
-curl localhost:8000/features/user/<user_id> | python -m json.tool
+curl -H "X-API-Key: sk_test_123" localhost:8002/v1/features/user/<user_id> | python -m json.tool
 ```
 
 The Airflow DAG (`fraud_feature_pipeline`, http://localhost:8081) runs the
@@ -167,14 +171,16 @@ previous features stay in Redis until their TTL expires.
 ## Architectural Trade-offs & Known Limitations
 
 - **Kafka Partitioning Bottleneck**: The `transactions.raw` topic is currently configured with a single partition. This was a deliberate choice for this local prototype to guarantee strict global ordering, but it severely limits consumer parallelism and prevents horizontal scaling of the Spark Structured Streaming job.
-- No auth or TLS — everything is plaintext, local only
-- Credentials are hardcoded local defaults
-- No monitoring, alerting, or CI/CD
-- Single Kafka partition — fine locally, would bottleneck under load
-- No Kafka→warehouse sink for CDC; dbt reads reference tables directly
-- Generator produces clean data; the validation/recon paths are not
-  stress-tested with deliberately malformed input
-- Feature serving has not been load-tested; no latency percentiles measured
+- **Cold Start (ML Serving)**: The API currently returns a `404 Not Found` for new users instead of a default feature vector (e.g., zeroes). This can cause ML models to fail when scoring brand new accounts.
+- **Batch vs. Streaming Features**: Features are calculated in batch via dbt. Real-time velocity spikes (e.g., a stolen card swiped 20 times in 5 minutes) won't be caught by the API until the next Airflow batch run. A streaming feature processor (like Flink) is required for V2.
+- **Feature serving has not been load-tested** (though the v1 API now tracks latency in the headers).
+- **Data Privacy & PII**: Transaction data (amounts, user IDs, merchant data) is currently flowing through Kafka and stored in Redis in plain text. For production, PII must be hashed or tokenized to comply with GDPR.
+- **Business Observability**: The architecture lacks a business-level dashboard (e.g., Tableau/Looker) connected to Postgres to monitor financial metrics like Total Transactions Blocked, Revenue Saved, and Customer Dispute Rates.
+- **False Positives / Shadow Mode**: The ML heuristics are aggressive and lack real-world tuning. The model must run in 'Shadow Mode' to measure false positives before actively blocking customer transactions.
+- No auth or TLS (except for the dummy API Key on the v1 API).
+- Credentials are hardcoded local defaults.
+- No CI/CD or automated infrastructure deployment.
+- Generator produces clean data; the validation/recon paths are not stress-tested with deliberately malformed input.
 
 ---
 

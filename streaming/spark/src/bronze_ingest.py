@@ -2,6 +2,7 @@
 Bronze ingestion: Kafka transactions.raw to Delta Lake.
 """
 
+import argparse
 import logging
 import os
 
@@ -105,18 +106,22 @@ def mask_pii(df: DataFrame) -> DataFrame:
     )
 
 
-def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str):
+def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str, once: bool = False):
     """Append valid records as date/hour-partitioned Delta Lake tables on MinIO."""
     logger.info("Bronze sink: %s", output)
+    writer = df.writeStream.format("delta").outputMode("append")
+    
+    if once:
+        writer = writer.trigger(availableNow=True)
+    else:
+        writer = writer.trigger(processingTime="30 seconds")
+
     return (
-        df.writeStream
-        .format("delta")
-        .outputMode("append")
+        writer
         # TODO: S3 Small File Problem - Triggering micro-batches every 30 seconds creates 
         # thousands of tiny Parquet files per hour partition under low volume. This will 
         # severely degrade downstream dbt load performance. We need to implement a compaction 
         # job or dynamically tune the trigger interval.
-        .trigger(processingTime="30 seconds")
         .option("checkpointLocation", checkpoint)
         .option("path", output)
         .partitionBy("event_date", "event_hour")
@@ -124,10 +129,10 @@ def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str):
     )
 
 
-def write_dead_letters(df: DataFrame, checkpoint: str, bootstrap: str):
+def write_dead_letters(df: DataFrame, checkpoint: str, bootstrap: str, once: bool = False):
     """Route unparseable records to the transactions.dead_letter topic."""
     logger.info("Dead-letter sink: transactions.dead_letter")
-    return (
+    writer = (
         df
         .select(
             col("_kafka_offset").cast("string").alias("key"),
@@ -136,7 +141,15 @@ def write_dead_letters(df: DataFrame, checkpoint: str, bootstrap: str):
         .writeStream
         .format("kafka")
         .outputMode("append")
-        .trigger(processingTime="30 seconds")
+    )
+    
+    if once:
+        writer = writer.trigger(availableNow=True)
+    else:
+        writer = writer.trigger(processingTime="30 seconds")
+
+    return (
+        writer
         .option("kafka.bootstrap.servers", bootstrap)
         .option("topic", "transactions.dead_letter")
         .option("checkpointLocation", checkpoint)
@@ -145,10 +158,14 @@ def write_dead_letters(df: DataFrame, checkpoint: str, bootstrap: str):
 
 
 def run() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--once", action="store_true", help="Process all available data then stop")
+    args = parser.parse_args()
+
     bootstrap = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     topic = "transactions.raw"
-    bronze_output = "s3a://bronze/transactions/"
-    bronze_checkpoint = "s3a://bronze/_checkpoints/bronze_ingest/"
+    bronze_output = "s3a://bronze/transactions_v2/"
+    bronze_checkpoint = "s3a://bronze/_checkpoints/bronze_ingest_v2/"
     dead_letter_checkpoint = "s3a://bronze/_checkpoints/dead_letter/"
 
     spark = create_spark_session(app_name="bronze-ingest")
@@ -158,18 +175,18 @@ def run() -> None:
         valid_df = mask_pii(valid_df)
         valid_df = add_partition_columns(valid_df)
 
-        write_bronze_to_minio(valid_df, bronze_checkpoint, bronze_output)
-        write_dead_letters(invalid_df, dead_letter_checkpoint, bootstrap)
+        write_bronze_to_minio(valid_df, bronze_checkpoint, bronze_output, once=args.once)
+        write_dead_letters(invalid_df, dead_letter_checkpoint, bootstrap, once=args.once)
 
-        # Create a Databricks-style SQL table over your Delta files
-        spark.sql(f"""
-            CREATE TABLE IF NOT EXISTS fraud_transactions 
-            USING DELTA 
-            LOCATION '{bronze_output}'
-        """)
-
-        logger.info("Streams started. Ctrl+C to stop.")
-        spark.streams.awaitAnyTermination()
+        logger.info("Streams started.")
+        
+        if args.once:
+            for q in spark.streams.active:
+                q.awaitTermination()
+        else:
+            logger.info("Press Ctrl+C to stop.")
+            spark.streams.awaitAnyTermination()
+            
     except KeyboardInterrupt:
         logger.info("Shutdown signal received.")
     except Exception:

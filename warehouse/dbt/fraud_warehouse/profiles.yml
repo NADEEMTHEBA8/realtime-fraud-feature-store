@@ -6,7 +6,7 @@ fraud_warehouse:
     dev:
       type: postgres
       host: localhost
-      port: 5432
+      port: 5434
       user: fraud_admin
       password: changeme_local_only
       dbname: fraud_reference

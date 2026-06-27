@@ -14,7 +14,7 @@ from streaming.spark.src.config import create_spark_session
 
 def main() -> None:
     spark = create_spark_session("bronze-loader")
-    df = spark.read.parquet("s3a://bronze/transactions/")
+    df = spark.read.format("delta").load("s3a://bronze/transactions_v2/")
 
     # _raw_json is kept in bronze Parquet for debugging but is not needed
     # (and is bulky) in the warehouse table.
@@ -26,7 +26,7 @@ def main() -> None:
 
     conn = psycopg2.connect(
         host="127.0.0.1",
-        port=5432,
+        port=5434,
         dbname="fraud_reference",
         user="fraud_admin",
         password="changeme_local_only",
@@ -34,7 +34,7 @@ def main() -> None:
     try:
         with conn, conn.cursor() as cur:
             cur.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-            cur.execute("DROP TABLE IF EXISTS bronze.transactions")
+            cur.execute("DROP TABLE IF EXISTS bronze.transactions CASCADE")
             col_defs = ", ".join(f'"{c}" TEXT' for c in columns)
             cur.execute(f"CREATE TABLE bronze.transactions ({col_defs})")
 

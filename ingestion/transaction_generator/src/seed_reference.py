@@ -30,7 +30,7 @@ SEED = 42
 def _connect():
     return psycopg2.connect(
         host=os.getenv("PG_HOST", "127.0.0.1"),
-        port=int(os.getenv("PG_PORT", "5432")),
+        port=int(os.getenv("PG_PORT", "5434")),
         dbname=os.getenv("PG_DATABASE", "fraud_reference"),
         user=os.getenv("PG_USER", "fraud_admin"),
         password=os.getenv("PG_PASSWORD", "changeme_local_only"),

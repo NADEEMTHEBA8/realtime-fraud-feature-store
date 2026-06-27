@@ -1,5 +1,7 @@
+
+
 .PHONY: help up down logs ps clean install setup fmt lint test \
-        seed connector gen bronze load dbt dbt-test dbt-snapshot features api health recon
+        seed connector gen bronze load dbt dbt-test dbt-snapshot features api health recon demo
 
 help:
 	@echo "infra:"
@@ -22,6 +24,7 @@ help:
 	@echo "  dbt-test   - run dbt tests only"
 	@echo "  features   - load features from postgres to redis"
 	@echo "  api        - start the feature serving api"
+	@echo "  demo       - run a complete end-to-end data pipeline simulation"
 	@echo ""
 	@echo "checks:"
 	@echo "  health     - check api health endpoint"
@@ -32,10 +35,8 @@ help:
 # --- infra ---
 
 up:
-	docker compose up -d
-	@echo "Kafka UI:  http://localhost:8080"
-	@echo "MinIO UI:  http://localhost:9001"
-	@echo "Airflow:   http://localhost:8081"
+	@docker compose up -d > /dev/null 2>&1
+	@echo "Docker services started."
 	@echo "Next: make seed && make connector"
 
 down:
@@ -58,7 +59,7 @@ clean:
 # --- setup ---
 
 seed:
-	python -m ingestion.transaction_generator.src.seed_reference
+	.venv/bin/python -m ingestion.transaction_generator.src.seed_reference
 
 connector:
 	./infra/debezium/register-connector.sh
@@ -66,55 +67,63 @@ connector:
 # --- pipeline ---
 
 gen:
-	python -m ingestion.transaction_generator.src.run
+	.venv/bin/python -m ingestion.transaction_generator.src.run --firehose
 
 bronze:
-	python -m streaming.spark.src.bronze_ingest
+	.venv/bin/python -m streaming.spark.src.bronze_ingest
 
 load:
-	python load_bronze_to_postgres.py
+	.venv/bin/python load_bronze_to_postgres.py
 
 dbt:
-	cd warehouse/dbt/fraud_warehouse && dbt snapshot && dbt run && dbt test
+	cd warehouse/dbt/fraud_warehouse && ../../../.venv/bin/dbt snapshot && ../../../.venv/bin/dbt run && ../../../.venv/bin/dbt test
 
 dbt-test:
-	cd warehouse/dbt/fraud_warehouse && dbt test
+	cd warehouse/dbt/fraud_warehouse && ../../../.venv/bin/dbt test
 
 dbt-snapshot:
-	cd warehouse/dbt/fraud_warehouse && dbt snapshot
+	cd warehouse/dbt/fraud_warehouse && ../../../.venv/bin/dbt snapshot
 
 features:
-	python -m feature_store.src.loader
+	.venv/bin/python -m feature_store.src.loader
 
 api:
-	uvicorn feature_store.src.api:app --reload --port 8000
+	@echo "Starting FastAPI on http://localhost:8002"
+	@echo "API Docs: http://localhost:8002/docs (No auth required)"
+	.venv/bin/uvicorn feature_store.src.api:app --reload --port 8002
+
+demo:
+	@bash scripts/run_demo.sh
 
 # --- checks ---
 
 health:
-	@curl -s localhost:8000/health | python -m json.tool
+	@curl -s localhost:8002/health | .venv/bin/python -m json.tool
 
 recon:
 	@docker compose exec postgres psql -U fraud_admin -d fraud_reference -c \
 		"SELECT recon_status, bronze_total, silver_total, unaccounted_records FROM silver_data_quality.recon_bronze_silver;"
 
 install:
-	pip install -e ".[dev]"
+	.venv/bin/pip install -e ".[dev]"
 
 setup:
-	@python -c "import sys; v=sys.version_info; \
-	exit(0) if (v.major,v.minor)==(3,11) else (print('ERROR: need Python 3.11, found %d.%d. Activate your venv: source .venv/bin/activate' % (v.major,v.minor)) or exit(1))"
-	pip install -e ".[dev]"
-	pip install "dbt-core==1.8.*" "dbt-postgres==1.8.2"
+	@echo "Creating Python 3.11 virtual environment..."
+	python3.11 -m venv --clear .venv
+	.venv/bin/pip install --upgrade pip
+	.venv/bin/pip install -e ".[dev]"
+	.venv/bin/pip install "dbt-core==1.8.*" "dbt-postgres==1.8.2"
 	@echo ""
-	@echo "Setup complete. Verify with: dbt --version"
+	@echo "Setup complete! Please activate your environment by running:"
+	@echo "  source .venv/bin/activate"
+	@echo ""
 	@echo "Next: make up"
 
 fmt:
-	ruff format .
+	.venv/bin/ruff format .
 
 lint:
-	ruff check .
+	.venv/bin/ruff check .
 
 test:
-	pytest -v
+	.venv/bin/pytest -v
