@@ -22,6 +22,8 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.29.0",
     "delta-spark~=3.1.0",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
 ]
 
 [project.optional-dependencies]
@@ -46,10 +48,12 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["B008", "B905"]
 
 [tool.pytest.ini_options]
 testpaths = ["ingestion", "streaming", "feature_store", "orchestration"]
 python_files = "test_*.py"
+pythonpath = "."
 
 [tool.mypy]
 python_version = "3.11"

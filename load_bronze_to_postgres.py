@@ -3,14 +3,15 @@ Load bronze Parquet (MinIO) into Postgres as bronze.transactions.
 
 Bridges the streaming output into the warehouse so dbt can read it as a
 source. All columns land as TEXT — typing happens in stg_transactions.
-Uses Spark's native JDBC writer to prevent OOM errors, and performs a 
+Uses Spark's native JDBC writer to prevent OOM errors, and performs a
 transactional staging table swap to ensure zero downtime.
 """
 
 import os
-import psycopg2
 
+import psycopg2
 from pyspark.sql.functions import col
+
 from streaming.spark.src.config import create_spark_session
 
 
@@ -29,12 +30,8 @@ def main() -> None:
     pg_url = "jdbc:postgresql://127.0.0.1:5434/fraud_reference"
     pg_user = os.getenv("PG_USER", "fraud_admin")
     pg_password = os.getenv("PG_PASSWORD", "changeme_local_only")
-    
-    properties = {
-        "user": pg_user,
-        "password": pg_password,
-        "driver": "org.postgresql.Driver"
-    }
+
+    properties = {"user": pg_user, "password": pg_password, "driver": "org.postgresql.Driver"}
 
     print("Writing data to temporary staging table via JDBC...")
     # Write to a temporary staging table

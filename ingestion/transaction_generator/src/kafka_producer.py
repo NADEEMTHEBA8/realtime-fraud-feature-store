@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -25,10 +25,10 @@ from kafka.errors import KafkaError
 
 from ingestion.transaction_generator.src.schemas import TransactionEvent
 
-
 # ---------------------------------------------------------------------------
 # Custom JSON encoder for types that json.dumps cannot handle natively
 # ---------------------------------------------------------------------------
+
 
 class _EventEncoder(json.JSONEncoder):
     """Handle Decimal, datetime, and UUID serialization."""
@@ -47,6 +47,7 @@ class _EventEncoder(json.JSONEncoder):
 # Producer
 # ---------------------------------------------------------------------------
 
+
 class TransactionKafkaProducer:
     """Wraps kafka-python's KafkaProducer: event serialization, send/error
     counts, and a small public interface for the generator."""
@@ -64,11 +65,11 @@ class TransactionKafkaProducer:
             bootstrap_servers=bootstrap_servers,
             value_serializer=lambda v: json.dumps(v, cls=_EventEncoder).encode("utf-8"),
             key_serializer=lambda k: k.encode("utf-8") if k else None,
-            acks="all",               # Wait for all replicas (strongest durability)
-            retries=3,                # Retry on transient failures
+            acks="all",  # Wait for all replicas (strongest durability)
+            retries=3,  # Retry on transient failures
             max_in_flight_requests_per_connection=1,  # Preserve ordering
-            linger_ms=10,             # Batch for 10ms before sending (throughput vs latency)
-            batch_size=32768,         # 32KB batch size
+            linger_ms=10,  # Batch for 10ms before sending (throughput vs latency)
+            batch_size=32768,  # 32KB batch size
         )
 
     # ----- public API -----

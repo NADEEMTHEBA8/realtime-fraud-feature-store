@@ -15,7 +15,7 @@ Keys:
 import json
 import logging
 import os
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import psycopg2
@@ -30,7 +30,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("feature_loader")
 
-USER_TTL_SECONDS = 86400      # 24h
+USER_TTL_SECONDS = 86400  # 24h
 MERCHANT_TTL_SECONDS = 604800  # 7d
 PIPELINE_BATCH = 100
 
@@ -128,7 +128,7 @@ def load_merchant_stats(pg_conn, redis_conn) -> int:
 def set_metadata(redis_conn, user_count: int, merchant_count: int) -> None:
     """Write load metadata; the API /health endpoint reads this for freshness."""
     meta = {
-        "last_loaded_at": datetime.utcnow().isoformat(),
+        "last_loaded_at": datetime.now(UTC).isoformat(),
         "user_features_count": user_count,
         "merchant_stats_count": merchant_count,
         "loader_version": "1.0.0",

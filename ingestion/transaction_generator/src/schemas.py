@@ -6,35 +6,38 @@ and downstream consumers (Kafka, Spark, dbt). Any event that does not
 conform to these schemas is rejected at the source.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 # ---------------------------------------------------------------------------
 # Enums - the set of valid values for categorical fields
 # ---------------------------------------------------------------------------
 
-class TransactionType(str, Enum):
+
+class TransactionType(StrEnum):
     """The kind of transaction being performed."""
+
     PURCHASE = "PURCHASE"
     REFUND = "REFUND"
     TRANSFER = "TRANSFER"
     WITHDRAWAL = "WITHDRAWAL"
 
 
-class TransactionStatus(str, Enum):
+class TransactionStatus(StrEnum):
     """The current state of the transaction."""
+
     PENDING = "PENDING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
 
 
-class PaymentMethod(str, Enum):
+class PaymentMethod(StrEnum):
     """How the user paid. UPI dominates in India - ~80% of our traffic."""
+
     UPI = "UPI"
     CARD = "CARD"
     NETBANKING = "NETBANKING"
@@ -44,6 +47,7 @@ class PaymentMethod(str, Enum):
 # ---------------------------------------------------------------------------
 # Transaction event - the core message that flows through Kafka
 # ---------------------------------------------------------------------------
+
 
 class TransactionEvent(BaseModel):
     """
@@ -59,13 +63,15 @@ class TransactionEvent(BaseModel):
         frozen=True,
         str_strip_whitespace=True,
         json_encoders={
-            Decimal: str,         # JSON has no decimal type; serialize as string
+            Decimal: str,  # JSON has no decimal type; serialize as string
             datetime: lambda v: v.isoformat(),
         },
     )
 
     # Identifiers
-    transaction_id: UUID = Field(default_factory=uuid4, description="Globally unique transaction ID")
+    transaction_id: UUID = Field(
+        default_factory=uuid4, description="Globally unique transaction ID"
+    )
     user_id: str = Field(..., min_length=1, max_length=64, description="FK to users table")
     merchant_id: str = Field(..., min_length=1, max_length=64, description="FK to merchants table")
 
@@ -80,13 +86,21 @@ class TransactionEvent(BaseModel):
 
     # Time
     event_timestamp: datetime = Field(..., description="When the transaction occurred (UTC)")
-    ingestion_timestamp: datetime = Field(default_factory=datetime.utcnow, description="When the event entered the pipeline")
+    ingestion_timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), description="When the event entered the pipeline"
+    )
 
     # Optional context (PII handled carefully)
-    device_id: str | None = Field(default=None, max_length=64, description="Hashed device fingerprint")
-    ip_address: str | None = Field(default=None, max_length=45, description="Source IP, masked to /24")
+    device_id: str | None = Field(
+        default=None, max_length=64, description="Hashed device fingerprint"
+    )
+    ip_address: str | None = Field(
+        default=None, max_length=45, description="Source IP, masked to /24"
+    )
     city: str | None = Field(default=None, max_length=64)
-    country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$", description="ISO 3166-1 alpha-2")
+    country: str | None = Field(
+        default=None, pattern=r"^[A-Z]{2}$", description="ISO 3166-1 alpha-2"
+    )
 
     # ----- validators -----
 
@@ -102,7 +116,7 @@ class TransactionEvent(BaseModel):
     @classmethod
     def validate_timestamp_not_future(cls, v: datetime) -> datetime:
         """Reject events from the future (clock skew or bug)."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         if v.tzinfo is not None:
             now = now.replace(tzinfo=v.tzinfo)
         if v > now:

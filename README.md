@@ -2,7 +2,7 @@
 
 Fraud detection models require instantaneous access to aggregated historical behavior, yet generating these signals across millions of events introduces latency that degrades checkout experiences. This pipeline solves the data engineering challenge of ingesting Kafka transaction streams, aggregating features in a dimensional model, and serving them via Redis for sub-10ms inference by ML applications.
 
-[![CI](https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![CI](https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store/actions/workflows/ci.yml/badge.svg)](https://github.com/NADEEMTHEBA8/realtime-fraud-feature-store/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![Spark](https://img.shields.io/badge/pyspark-3.5-E25A1C)
 ![dbt](https://img.shields.io/badge/dbt-1.8-orange)
@@ -28,6 +28,25 @@ Fraud detection models require instantaneous access to aggregated historical beh
 
 ## Technology Stack and Architectural Decisions
 
+### Architecture Diagram
+
+```text
+Generator → Kafka → Spark Streaming → MinIO (Delta Lake)
+                                            ↓
+                                   load_bronze_to_postgres.py
+                                            ↓
+                                    PostgreSQL (Bronze)
+                                            ↓
+                                    dbt (Staging → Intermediate → Gold)
+                                            ↓
+                                    loader.py → Redis
+                                            ↓
+                                    FastAPI (Serving)
+
+Debezium CDC: Postgres (users/merchants) → Kafka (for future use)
+Airflow: Orchestrates the batch path (dbt → Redis load)
+```
+
 ### Stack
 
 | Layer | Tool | Version |
@@ -47,11 +66,11 @@ Fraud detection models require instantaneous access to aggregated historical beh
 
 **Spark Structured Streaming over batch ingestion.** PySpark was selected to handle the Kafka transaction stream, ensuring low-latency data arrival while providing native integration with Delta Lake. Delta Lake serves as the Bronze layer because its ACID guarantees prevent dirty reads during concurrent batch transformations downstream.
 
-**PostgreSQL as a local warehouse stand-in.** A dimensional model running on PostgreSQL operates as the local substitute for a cloud data warehouse. This reduces local development overhead while allowing the exact dbt SQL logic to be ported to a production environment with a single profile change.
+**PostgreSQL as a local warehouse stand-in.** A dimensional model running on PostgreSQL operates as the local substitute for a cloud data warehouse. This reduces local development overhead. **Cloud Portability:** The exact dbt SQL logic is highly portable to a production cloud data warehouse like Snowflake or BigQuery with a simple dbt profile change.
 
 **Redis over direct warehouse queries.** Redis was chosen for the serving layer instead of querying the warehouse directly because the FastAPI endpoints require single-digit-millisecond read latency to prevent blocking live checkout flows. Aggregated feature vectors are pre-computed in batch via Airflow and pushed to Redis, optimizing the read path for inference.
 
-**Debezium for reference data CDC.** Debezium captures inserts and updates from the PostgreSQL WAL for reference data such as user and merchant profiles. This mechanism guarantees that the pipeline accurately tracks slowly changing dimensions over time without introducing polling overhead against the primary database.
+**Debezium for reference data CDC.** Debezium captures inserts and updates from the PostgreSQL WAL for reference data such as user and merchant profiles. *Note: This is currently deployed as a foundation for future downstream streaming pipelines; at present, dbt reads directly from PostgreSQL.* This mechanism guarantees that the pipeline accurately tracks slowly changing dimensions over time without introducing polling overhead against the primary database.
 
 ---
 
@@ -74,6 +93,12 @@ make setup
 source .venv/bin/activate
 make demo
 ```
+
+**Environment Variables:**
+The `.env.example` file contains defaults for local testing:
+- `POSTGRES_USER` / `POSTGRES_PASSWORD`: Credentials for the local warehouse.
+- `REDIS_HOST` / `REDIS_PORT`: Configuration for the feature serving cache.
+- `API_KEY`: A dummy key (`sk_test_123`) used by the mock scoring service.
 
 If manual step-by-step execution is required, utilize the following commands in sequence:
 
@@ -127,13 +152,14 @@ realtime-fraud-feature-store/
 ├── warehouse/
 │   └── dbt/fraud_warehouse/           dbt models, snapshots, and tests
 ├── feature_store/
-│   └── src/                           Postgres to Redis loader and FastAPI app
+│   └── src/                           Postgres to Redis loader, FastAPI app, and mock ML scorer
 ├── orchestration/
 │   └── airflow/dags/                  batch pipeline DAG and dbt profile
 ├── infra/
 │   ├── postgres/init/                 reference table DDL and CDC publication
 │   ├── debezium/                      connector configuration
 │   └── terraform-aws-freetier/        Terraform modules for AWS deployment
+├── docs/                              assets and Architecture Decision Records (ADRs)
 └── load_bronze_to_postgres.py         Delta Lake to Postgres bridging script
 ```
 
@@ -141,7 +167,7 @@ realtime-fraud-feature-store/
 
 ## About
 
-Nadeem Theba. An event-driven data pipeline prototype designed to demonstrate infrastructure patterns for real-time fraud detection.
+Nadeem Theba. An event-driven data pipeline prototype designed to demonstrate production-patterned infrastructure for real-time fraud detection.
 
 * LinkedIn: [linkedin.com/in/nadeem-theba-602862208](https://linkedin.com/in/nadeem-theba-602862208)
 * Email: nadeemtheba8@gmail.com

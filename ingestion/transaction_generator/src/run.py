@@ -30,9 +30,7 @@ def main() -> None:
     parser.add_argument(
         "--firehose", action="store_true", help="Aggressively batch events without sleep"
     )
-    parser.add_argument(
-        "--max-events", type=int, default=0, help="Stop after this many events"
-    )
+    parser.add_argument("--max-events", type=int, default=0, help="Stop after this many events")
     args = parser.parse_args()
 
     print(f"Generating {NUM_USERS} users / {NUM_MERCHANTS} merchants (seed={SEED})")
@@ -45,7 +43,7 @@ def main() -> None:
         bootstrap_servers=KAFKA_BOOTSTRAP,
         topic=KAFKA_TOPIC,
     )
-    
+
     if args.firehose:
         print(f"Publishing to {KAFKA_TOPIC} in FIREHOSE mode (Ctrl+C to stop)")
     else:
@@ -75,7 +73,7 @@ def main() -> None:
 
     except KeyboardInterrupt:
         pass
-    
+
     finally:
         producer.flush()
         elapsed = time.time() - start_time

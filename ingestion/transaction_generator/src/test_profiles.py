@@ -1,13 +1,11 @@
 """
-Smoke test for profile generation.
-Run with: python -m ingestion.transaction_generator.src.test_profiles
+Smoke test for profile generation, converted to pytest.
 """
 
 from collections import Counter
 from decimal import Decimal
 
 from ingestion.transaction_generator.src.profiles import (
-    INDIAN_CITIES,
     MERCHANT_CATEGORIES,
     ProfileFactory,
 )
@@ -26,10 +24,6 @@ def test_basic_user_creation() -> None:
     assert Decimal("0") <= user.risk_score <= Decimal("1")
     assert user.preferred_payment_method in ("UPI", "CARD", "NETBANKING", "WALLET")
 
-    print(f"User created: {user.user_id} | {user.city} | {user.kyc_status}")
-    print(f"  Risk: {user.risk_score} | Avg amount: {user.avg_transaction_amount}")
-    print(f"  Email hash: {user.email_hash[:16]}... (full hash hidden)")
-
 
 def test_basic_merchant_creation() -> None:
     """A merchant should have all expected fields populated."""
@@ -41,10 +35,6 @@ def test_basic_merchant_creation() -> None:
     assert merchant.country == "IN"
     assert merchant.risk_tier in ("LOW", "MEDIUM", "HIGH")
 
-    print(f"Merchant created: {merchant.merchant_id} | {merchant.merchant_name}")
-    print(f"  Category: {merchant.category} | City: {merchant.city}")
-    print(f"  Risk tier: {merchant.risk_tier} | Avg ticket: {merchant.avg_ticket_size}")
-
 
 def test_distributions_look_realistic() -> None:
     """Generate 5000 users and check distributions are roughly as expected."""
@@ -54,11 +44,6 @@ def test_distributions_look_realistic() -> None:
     cities = Counter(u.city for u in users)
     kyc = Counter(u.kyc_status for u in users)
     methods = Counter(u.preferred_payment_method for u in users)
-
-    print("\n5000 users generated. Distribution checks:")
-    print(f"  Top 3 cities: {cities.most_common(3)}")
-    print(f"  KYC: {dict(kyc)}")
-    print(f"  Payment methods: {dict(methods)}")
 
     assert kyc["VERIFIED"] > kyc["PENDING"] > kyc["REJECTED"]
     assert methods["UPI"] > methods["CARD"]
@@ -87,16 +72,3 @@ def test_seed_determinism_for_non_id_fields() -> None:
     assert u1.kyc_status == u2.kyc_status
     assert u1.risk_score == u2.risk_score
     assert u1.preferred_payment_method == u2.preferred_payment_method
-
-    print("\nSeed determinism verified - non-ID fields match across seeded runs.")
-    print(f"  Both users -> city={u1.city}, kyc={u1.kyc_status}, risk={u1.risk_score}")
-
-
-if __name__ == "__main__":
-    print("Running profile smoke tests...\n")
-    test_basic_user_creation()
-    print()
-    test_basic_merchant_creation()
-    test_distributions_look_realistic()
-    test_seed_determinism_for_non_id_fields()
-    print("\nAll profile smoke tests passed.")

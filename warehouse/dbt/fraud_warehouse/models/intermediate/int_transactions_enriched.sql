@@ -3,7 +3,7 @@
     derived fraud signals. Joins live here so gold models only aggregate.
 */
 
-{{ config(materialized='table', schema='gold') }}
+{{ config(materialized='table', schema='silver') }}
 
 with transactions as (
 

@@ -20,22 +20,24 @@ logger = logging.getLogger("bronze_ingest")
 
 # Mirrors schemas.TransactionEvent. Optional fields are nullable; everything
 # stays StringType so a malformed value never fails the whole micro-batch.
-TRANSACTION_SCHEMA = StructType([
-    StructField("transaction_id", StringType(), nullable=False),
-    StructField("user_id", StringType(), nullable=False),
-    StructField("merchant_id", StringType(), nullable=False),
-    StructField("amount", StringType(), nullable=False),
-    StructField("currency", StringType(), nullable=False),
-    StructField("transaction_type", StringType(), nullable=False),
-    StructField("status", StringType(), nullable=False),
-    StructField("payment_method", StringType(), nullable=False),
-    StructField("event_timestamp", StringType(), nullable=False),
-    StructField("ingestion_timestamp", StringType(), nullable=True),
-    StructField("device_id", StringType(), nullable=True),
-    StructField("ip_address", StringType(), nullable=True),
-    StructField("city", StringType(), nullable=True),
-    StructField("country", StringType(), nullable=True),
-])
+TRANSACTION_SCHEMA = StructType(
+    [
+        StructField("transaction_id", StringType(), nullable=False),
+        StructField("user_id", StringType(), nullable=False),
+        StructField("merchant_id", StringType(), nullable=False),
+        StructField("amount", StringType(), nullable=False),
+        StructField("currency", StringType(), nullable=False),
+        StructField("transaction_type", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("payment_method", StringType(), nullable=False),
+        StructField("event_timestamp", StringType(), nullable=False),
+        StructField("ingestion_timestamp", StringType(), nullable=True),
+        StructField("device_id", StringType(), nullable=True),
+        StructField("ip_address", StringType(), nullable=True),
+        StructField("city", StringType(), nullable=True),
+        StructField("country", StringType(), nullable=True),
+    ]
+)
 
 
 def build_kafka_source(spark: SparkSession, bootstrap: str, topic: str) -> DataFrame:
@@ -46,8 +48,7 @@ def build_kafka_source(spark: SparkSession, bootstrap: str, topic: str) -> DataF
     """
     logger.info("Kafka source: %s topic=%s", bootstrap, topic)
     return (
-        spark.readStream
-        .format("kafka")
+        spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", bootstrap)
         .option("subscribe", topic)
         .option("startingOffsets", "earliest")
@@ -65,8 +66,7 @@ def parse_and_validate(raw_df: DataFrame) -> tuple[DataFrame, DataFrame]:
     dead-letter consumer can see what was malformed.
     """
     parsed = (
-        raw_df
-        .withColumn("value_str", col("value").cast("string"))
+        raw_df.withColumn("value_str", col("value").cast("string"))
         .withColumn("parsed", from_json(col("value_str"), TRANSACTION_SCHEMA))
         .select(
             col("parsed.*"),
@@ -80,9 +80,7 @@ def parse_and_validate(raw_df: DataFrame) -> tuple[DataFrame, DataFrame]:
     )
 
     required = (
-        col("transaction_id").isNotNull()
-        & col("user_id").isNotNull()
-        & col("amount").isNotNull()
+        col("transaction_id").isNotNull() & col("user_id").isNotNull() & col("amount").isNotNull()
     )
     return parsed.filter(required), parsed.filter(~required)
 
@@ -90,8 +88,7 @@ def parse_and_validate(raw_df: DataFrame) -> tuple[DataFrame, DataFrame]:
 def add_partition_columns(df: DataFrame) -> DataFrame:
     """Derive event_date / event_hour from event_timestamp for Parquet layout."""
     return (
-        df
-        .withColumn("event_ts_parsed", col("event_timestamp").cast(TimestampType()))
+        df.withColumn("event_ts_parsed", col("event_timestamp").cast(TimestampType()))
         .withColumn("event_date", to_date(col("event_ts_parsed")))
         .withColumn("event_hour", hour(col("event_ts_parsed")))
     )
@@ -99,10 +96,8 @@ def add_partition_columns(df: DataFrame) -> DataFrame:
 
 def mask_pii(df: DataFrame) -> DataFrame:
     """Mask PII fields using SHA-256 for data governance compliance."""
-    return (
-        df
-        .withColumn("device_id", sha2(col("device_id"), 256))
-        .withColumn("ip_address", sha2(col("ip_address"), 256))
+    return df.withColumn("device_id", sha2(col("device_id"), 256)).withColumn(
+        "ip_address", sha2(col("ip_address"), 256)
     )
 
 
@@ -110,15 +105,14 @@ def write_bronze_to_minio(df: DataFrame, checkpoint: str, output: str, once: boo
     """Append valid records as date/hour-partitioned Delta Lake tables on MinIO."""
     logger.info("Bronze sink: %s", output)
     writer = df.writeStream.format("delta").outputMode("append")
-    
+
     if once:
         writer = writer.trigger(availableNow=True)
     else:
         writer = writer.trigger(processingTime="2 minutes")
 
     return (
-        writer
-        .option("checkpointLocation", checkpoint)
+        writer.option("checkpointLocation", checkpoint)
         .option("path", output)
         .partitionBy("event_date", "event_hour")
         .start()
@@ -129,24 +123,21 @@ def write_dead_letters(df: DataFrame, checkpoint: str, bootstrap: str, once: boo
     """Route unparseable records to the transactions.dead_letter topic."""
     logger.info("Dead-letter sink: transactions.dead_letter")
     writer = (
-        df
-        .select(
+        df.select(
             col("_kafka_offset").cast("string").alias("key"),
             col("_raw_json").alias("value"),
         )
-        .writeStream
-        .format("kafka")
+        .writeStream.format("kafka")
         .outputMode("append")
     )
-    
+
     if once:
         writer = writer.trigger(availableNow=True)
     else:
         writer = writer.trigger(processingTime="2 minutes")
 
     return (
-        writer
-        .option("kafka.bootstrap.servers", bootstrap)
+        writer.option("kafka.bootstrap.servers", bootstrap)
         .option("topic", "transactions.dead_letter")
         .option("checkpointLocation", checkpoint)
         .start()
@@ -175,14 +166,14 @@ def run() -> None:
         write_dead_letters(malformed_txns, dead_letter_checkpoint, bootstrap, once=args.once)
 
         logger.info("Streams started.")
-        
+
         if args.once:
             for q in spark.streams.active:
                 q.awaitTermination()
         else:
             logger.info("Press Ctrl+C to stop.")
             spark.streams.awaitAnyTermination()
-            
+
     except KeyboardInterrupt:
         logger.info("Shutdown signal received.")
     except Exception:

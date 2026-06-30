@@ -9,9 +9,9 @@ import json
 import logging
 import os
 import time
+from collections.abc import Generator
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Generator
+from datetime import UTC, datetime
 
 import redis
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Security
@@ -83,9 +83,7 @@ async def add_process_time_header(request: Request, call_next):
 def get_api_key(api_key: str = Security(api_key_header)) -> str:
     """Validate the incoming API key."""
     if api_key != DUMMY_API_KEY:
-        raise HTTPException(
-            status_code=403, detail="Invalid API Key. Access denied."
-        )
+        raise HTTPException(status_code=403, detail="Invalid API Key. Access denied.")
     return api_key
 
 
@@ -120,9 +118,7 @@ v1_router = APIRouter(prefix="/v1", tags=["Features V1"])
 
 @v1_router.get("/features/user/{user_id}", response_model=FeatureResponse)
 def get_user_features(
-    user_id: str,
-    api_key: str = Depends(get_api_key),
-    r: redis.Redis = Depends(get_redis)
+    user_id: str, api_key: str = Depends(get_api_key), r: redis.Redis = Depends(get_redis)
 ):
     """Retrieve all precomputed fraud features for a single user."""
     raw = r.get(f"user:features:{user_id}")
@@ -134,15 +130,13 @@ def get_user_features(
     return FeatureResponse(
         user_id=user_id,
         features=json.loads(raw),
-        served_at=datetime.utcnow().isoformat(),
+        served_at=datetime.now(UTC).isoformat(),
     )
 
 
 @v1_router.post("/features/batch")
 def get_batch_features(
-    request: BatchRequest,
-    api_key: str = Depends(get_api_key),
-    r: redis.Redis = Depends(get_redis)
+    request: BatchRequest, api_key: str = Depends(get_api_key), r: redis.Redis = Depends(get_redis)
 ):
     """Multi-user feature lookup via a single Redis MGET for high-throughput scoring."""
     keys = [f"user:features:{uid}" for uid in request.user_ids]
@@ -164,7 +158,7 @@ def get_batch_features(
             "missing": len(missing),
             "missing_ids": missing,
         },
-        "served_at": datetime.utcnow().isoformat(),
+        "served_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -182,20 +176,17 @@ def health_check(r: redis.Redis = Depends(get_redis)):
 
     meta_raw = r.get("_meta:features:last_loaded")
     if not meta_raw:
-        return HealthResponse(
-            status="degraded",
-            redis="connected"
-        )
+        return HealthResponse(status="degraded", redis="connected")
 
     meta = json.loads(meta_raw)
     last_loaded = datetime.fromisoformat(meta["last_loaded_at"])
-    age_hours = (datetime.utcnow() - last_loaded).total_seconds() / 3600
+    age_hours = (datetime.now(UTC) - last_loaded).total_seconds() / 3600
 
     return HealthResponse(
         status="healthy" if age_hours < FRESHNESS_LIMIT_HOURS else "degraded",
         redis="connected",
         features_age_hours=round(age_hours, 2),
-        last_loaded_at=meta["last_loaded_at"]
+        last_loaded_at=meta["last_loaded_at"],
     )
 
 

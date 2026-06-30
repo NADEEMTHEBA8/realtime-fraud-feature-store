@@ -157,7 +157,7 @@ services:
   # Airflow in standalone mode (webserver + scheduler, SequentialExecutor).
   # Runs the batch DAG: dbt snapshot -> run -> test -> feature load.
   airflow:
-    image: apache/airflow:2.8.1-python3.11
+    image: apache/airflow:2.9.0-python3.11
     container_name: airflow
     depends_on:
       postgres:

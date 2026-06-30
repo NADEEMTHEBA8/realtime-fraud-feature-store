@@ -8,12 +8,11 @@ merchant profiles with domain-aware randomization.
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from ingestion.transaction_generator.src.profiles import (
     MerchantProfile,
-    ProfileFactory,
     UserProfile,
 )
 from ingestion.transaction_generator.src.schemas import (
@@ -23,7 +22,6 @@ from ingestion.transaction_generator.src.schemas import (
     TransactionType,
 )
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -31,10 +29,30 @@ from ingestion.transaction_generator.src.schemas import (
 # Hour-of-day weights (index 0 = midnight, index 23 = 11pm).
 # Peaks at 10am-1pm and 6pm-9pm, mimicking Indian fintech usage.
 HOUR_WEIGHTS: list[int] = [
-    1, 1, 1, 1, 1, 2,       # 00:00 - 05:00  (very low)
-    4, 6, 8, 10, 12, 12,    # 06:00 - 11:00  (morning ramp)
-    10, 9, 8, 7, 7, 8,      # 12:00 - 17:00  (afternoon)
-    11, 12, 10, 7, 4, 2,    # 18:00 - 23:00  (evening peak then drop)
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,  # 00:00 - 05:00  (very low)
+    4,
+    6,
+    8,
+    10,
+    12,
+    12,  # 06:00 - 11:00  (morning ramp)
+    10,
+    9,
+    8,
+    7,
+    7,
+    8,  # 12:00 - 17:00  (afternoon)
+    11,
+    12,
+    10,
+    7,
+    4,
+    2,  # 18:00 - 23:00  (evening peak then drop)
 ]
 
 # Transaction type weights
@@ -56,6 +74,7 @@ STATUS_WEIGHTS: dict[TransactionStatus, int] = {
 # ---------------------------------------------------------------------------
 # Generator
 # ---------------------------------------------------------------------------
+
 
 class TransactionGenerator:
     """
@@ -173,7 +192,7 @@ class TransactionGenerator:
         For the generator, we use 'now' as the base and add slight jitter
         so events aren't all at the exact same second.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jitter_seconds = self._rng.uniform(0, 5)
         return now - timedelta(seconds=jitter_seconds)
 
@@ -181,4 +200,4 @@ class TransactionGenerator:
         """Generate a plausible Indian IP address, masked to /24 for privacy."""
         # Indian IP ranges (simplified; real implementation would use GeoIP)
         first_octet = self._rng.choice([103, 106, 117, 122, 157, 182, 203])
-        return f"{first_octet}.{self._rng.randint(0,255)}.{self._rng.randint(0,255)}.0"
+        return f"{first_octet}.{self._rng.randint(0, 255)}.{self._rng.randint(0, 255)}.0"

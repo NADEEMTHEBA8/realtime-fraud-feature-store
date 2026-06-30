@@ -22,12 +22,11 @@ from __future__ import annotations
 import hashlib
 import random
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 from faker import Faker
-
 
 # ---------------------------------------------------------------------------
 # Indian-specific data - cities, merchant categories, payment-method weights
@@ -66,6 +65,7 @@ MERCHANT_CATEGORIES: list[str] = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _sha256(value: str) -> str:
     """Return the lowercase hex SHA-256 digest of a string."""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -80,6 +80,7 @@ def _weighted_choice(choices: list[tuple[str, int]], rng: random.Random) -> str:
 # ---------------------------------------------------------------------------
 # Domain dataclasses
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class UserProfile:
@@ -114,6 +115,7 @@ class MerchantProfile:
 # ---------------------------------------------------------------------------
 # Generators
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ProfileFactory:
@@ -158,7 +160,7 @@ class ProfileFactory:
             phone_hash=_sha256(phone),
             city=city,
             country="IN",
-            account_created_at=datetime.now(timezone.utc) - timedelta(days=self._rng.randint(1, 1500)),
+            account_created_at=datetime.now(UTC) - timedelta(days=self._rng.randint(1, 1500)),
             kyc_status=kyc,
             risk_score=Decimal(str(risk)),
             avg_transaction_amount=avg_amount,
@@ -184,9 +186,15 @@ class ProfileFactory:
         )[0]
 
         category_size_floor = {
-            "GROCERY": 200, "RESTAURANT": 300, "PHARMACY": 250,
-            "FUEL": 800, "APPAREL": 1200, "UTILITIES": 1000,
-            "ELECTRONICS": 5000, "TRAVEL": 3500, "ENTERTAINMENT": 500,
+            "GROCERY": 200,
+            "RESTAURANT": 300,
+            "PHARMACY": 250,
+            "FUEL": 800,
+            "APPAREL": 1200,
+            "UTILITIES": 1000,
+            "ELECTRONICS": 5000,
+            "TRAVEL": 3500,
+            "ENTERTAINMENT": 500,
             "EDUCATION": 8000,
         }.get(category, 500)
         avg_ticket = Decimal(str(round(category_size_floor * self._rng.uniform(0.7, 2.5), 2)))
@@ -197,7 +205,7 @@ class ProfileFactory:
             category=category,
             city=city,
             country="IN",
-            onboarded_at=datetime.now(timezone.utc) - timedelta(days=self._rng.randint(30, 2000)),
+            onboarded_at=datetime.now(UTC) - timedelta(days=self._rng.randint(30, 2000)),
             risk_tier=risk_tier,
             avg_ticket_size=avg_ticket,
         )

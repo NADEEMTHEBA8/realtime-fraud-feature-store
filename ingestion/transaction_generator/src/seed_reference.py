@@ -46,17 +46,29 @@ def main() -> None:
     flag_rng = random.Random(SEED)
     user_rows = [
         (
-            u.user_id, u.email_hash, u.phone_hash, u.city, u.country,
-            u.kyc_status, u.risk_score, flag_rng.random() < 0.02,
-            u.account_created_at, u.account_created_at,
+            u.user_id,
+            u.email_hash,
+            u.phone_hash,
+            u.city,
+            u.country,
+            u.kyc_status,
+            u.risk_score,
+            flag_rng.random() < 0.02,
+            u.account_created_at,
+            u.account_created_at,
         )
         for u in users
     ]
     merchant_rows = [
         (
-            m.merchant_id, m.merchant_name, m.category, m.risk_tier,
-            m.avg_ticket_size, flag_rng.random() < 0.03,
-            m.onboarded_at, m.onboarded_at,
+            m.merchant_id,
+            m.merchant_name,
+            m.category,
+            m.risk_tier,
+            m.avg_ticket_size,
+            flag_rng.random() < 0.03,
+            m.onboarded_at,
+            m.onboarded_at,
         )
         for m in merchants
     ]

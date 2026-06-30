@@ -9,7 +9,6 @@ The streaming side (Kafka -> Spark -> bronze) runs independently and is not
 orchestrated here.
 """
 
-import sys
 from datetime import timedelta
 
 from airflow import DAG
@@ -37,7 +36,6 @@ with DAG(
     catchup=False,
     tags=["fraud", "dbt", "feature-store"],
 ) as dag:
-
     # dbt project + profile are mounted into the Airflow container.
     DBT_PROJECT_DIR = "/opt/airflow/dbt"
     DBT_PROFILES_DIR = "/opt/airflow/dags"
@@ -63,7 +61,7 @@ with DAG(
     # Run the feature loader (Postgres gold -> Redis).
     # Reuses feature_store.src.loader so the batch path and the standalone
     # `make features` path stay identical.
-    # Note: In a production environment, this should ideally be run via 
+    # Note: In a production environment, this should ideally be run via
     # a KubernetesPodOperator to isolate dependencies, rather than BashOperator.
     load_features_to_redis = BashOperator(
         task_id="load_features_to_redis",
